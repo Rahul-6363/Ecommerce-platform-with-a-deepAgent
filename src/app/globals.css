@@ -1,0 +1,897 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Vaanijya.
+ *
+ * Palette drawn from dye and spice rather than the usual product-page kit:
+ * indigo ink on warm paper, haldi gold as the single accent, brick for a
+ * refusal. The agent speaks in indigo so its voice is always distinguishable
+ * from the platform's own.
+ */
+
+:root {
+  --paper: #faf8f5;
+  --paper-raised: #ffffff;
+  --paper-sunk: #f2eee7;
+  --rule: #e2dcd1;
+  --rule-strong: #cdc4b5;
+
+  --ink: #1a1f36;
+  --ink-soft: #4a5068;
+  --ink-faint: #8b8fa3;
+
+  --haldi: #e8a33d;
+  --haldi-deep: #c9821e;
+  --haldi-wash: #fdf4e3;
+
+  --neel: #3d4a9e;
+  --neel-soft: #6b76c4;
+  --neel-wash: #eef0fb;
+  /* Text on a neel wash needs more contrast than --neel gives. */
+  --neel-ink: #2d3875;
+
+  --brick: #b0432c;
+  --brick-wash: #fbeeea;
+
+  --moss: #4a7c59;
+  --moss-wash: #eef5f0;
+
+  --shadow-card: 0 1px 2px rgba(26, 31, 54, 0.04), 0 4px 12px rgba(26, 31, 54, 0.04);
+  --shadow-lift: 0 2px 4px rgba(26, 31, 54, 0.06), 0 12px 28px rgba(26, 31, 54, 0.09);
+
+  --font-display: "Fraunces", "Fraunces Fallback", ui-serif, Georgia, serif;
+  --font-ui: "Inter", "Inter Fallback", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+
+/* Fallback faces matched to the webfonts' metrics. Without these the swap
+ * from system font to Fraunces visibly reflows every heading on first paint. */
+@font-face {
+  font-family: "Fraunces Fallback";
+  src: local("Georgia"), local("Times New Roman"), serif;
+  size-adjust: 102%;
+  ascent-override: 92%;
+  descent-override: 24%;
+}
+
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Segoe UI"), local("Helvetica Neue"), sans-serif;
+  size-adjust: 100%;
+  ascent-override: 96%;
+  descent-override: 24%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+  font-feature-settings: "cv05" 1, "ss01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.021em;
+  line-height: 1.12;
+  margin: 0;
+  /* Fraunces is variable: a lower optical size keeps small headings readable. */
+  font-variation-settings: "SOFT" 0, "WONK" 0;
+}
+
+h1 { font-size: clamp(2rem, 5vw, 3.25rem); }
+h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); }
+h3 { font-size: 1.1rem; letter-spacing: -0.012em; }
+
+a { color: inherit; }
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Focus is never removed, only restyled: keyboard users must see where they are. */
+:focus-visible {
+  outline: 2px solid var(--neel);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--haldi-wash);
+  color: var(--ink);
+}
+
+/* ── Components ──────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+.rule-top { border-top: 1px solid var(--rule); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.56rem 1.05rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.9rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
+}
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary { background: var(--ink); color: var(--paper); }
+.btn-primary:hover:not(:disabled) { background: var(--neel); }
+
+.btn-accent { background: var(--haldi); color: #241a06; }
+.btn-accent:hover:not(:disabled) { background: var(--haldi-deep); }
+
+.btn-ghost { background: transparent; border-color: var(--rule-strong); color: var(--ink-soft); }
+.btn-ghost:hover:not(:disabled) { background: var(--paper-sunk); color: var(--ink); }
+
+.btn-approve { background: var(--moss); color: #fff; }
+.btn-approve:hover:not(:disabled) { filter: brightness(0.92); }
+
+.btn-reject { background: transparent; border-color: var(--brick); color: var(--brick); }
+.btn-reject:hover:not(:disabled) { background: var(--brick-wash); }
+
+.btn-sm { padding: 0.34rem 0.7rem; font-size: 0.82rem; border-radius: 7px; }
+
+.field {
+  width: 100%;
+  padding: 0.56rem 0.75rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  transition: border-color 0.14s ease;
+}
+
+.field:focus { border-color: var(--neel); outline: none; box-shadow: 0 0 0 3px var(--neel-wash); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.16rem 0.52rem;
+  border-radius: 999px;
+  font-size: 0.73rem;
+  font-weight: 550;
+  border: 1px solid transparent;
+  line-height: 1.5;
+}
+
+.chip-neutral { background: var(--paper-sunk); color: var(--ink-soft); border-color: var(--rule); }
+.chip-gold    { background: var(--haldi-wash); color: var(--haldi-deep); border-color: var(--haldi); }
+.chip-indigo  { background: var(--neel-wash); color: var(--neel); border-color: var(--neel-soft); }
+.chip-moss    { background: var(--moss-wash); color: var(--moss); border-color: var(--moss); }
+.chip-brick   { background: var(--brick-wash); color: var(--brick); border-color: var(--brick); }
+
+/* The reasoning ladder: the engine's logic, rendered as a chain you can read.
+ * This is the one place the design spends its boldness. */
+.ladder { list-style: none; margin: 0; padding: 0; }
+
+.ladder li {
+  position: relative;
+  padding: 0.3rem 0 0.3rem 1.5rem;
+  font-size: 0.855rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.ladder li::before {
+  content: "";
+  position: absolute;
+  left: 0.32rem;
+  top: 0.78rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--haldi);
+}
+
+.ladder li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 0.52rem;
+  top: 1.18rem;
+  bottom: -0.18rem;
+  width: 1px;
+  background: var(--rule-strong);
+}
+
+.mono { font-family: var(--font-mono); font-size: 0.8rem; }
+
+/* Text for screen readers only: used where a symbol carries meaning visually
+ * but would be read as punctuation. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-track { background: transparent; }
+.scroll-thin::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 4px; }
+
+@keyframes thinking {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.dot { animation: thinking 1.3s ease-in-out infinite; }
+.dot:nth-child(2) { animation-delay: 0.16s; }
+.dot:nth-child(3) { animation-delay: 0.32s; }
+
+
+/* ─────────────────────────── Motion ───────────────────────────────────
+ *
+ * Motion is used for two jobs only: to show that something arrived, and to
+ * confirm what the person just did. There are no scroll-triggered reveals and
+ * no hover transitions on every card — that reads as decoration. Each
+ * animation below answers an action or an arrival.
+ *
+ * Everything here is disabled under prefers-reduced-motion at the bottom of
+ * the file.
+ */
+
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* Arrival: one orchestrated entrance per view, staggered down the page. */
+@keyframes enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.enter { animation: enter 0.34s var(--ease-out) both; }
+
+/* A list that fills in order rather than all at once, so the eye can follow
+ * what the agent did. Capped at 10 so a long list does not crawl. */
+.stagger > * { animation: enter 0.34s var(--ease-out) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.30s; }
+.stagger > *:nth-child(9) { animation-delay: 0.34s; }
+.stagger > *:nth-child(n+10) { animation-delay: 0.38s; }
+
+/* Confirmation: a value that just changed, so a refreshed total is noticed. */
+@keyframes flash {
+  0%   { background-color: var(--haldi-wash); }
+  100% { background-color: transparent; }
+}
+
+.flash { animation: flash 1.1s var(--ease-out); }
+
+/* A number counting to its new value reads as the system working, so the
+ * change is marked rather than silently replaced. */
+@keyframes pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+
+.pop { animation: pop 0.42s var(--ease-spring); }
+
+/* The agent is doing something. A travelling bar, not a spinner, because it
+ * sits above content that is about to change. */
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+
+.working {
+  position: relative;
+  overflow: hidden;
+  height: 2px;
+  background: var(--paper-sunk);
+  border-radius: 2px;
+}
+
+.working::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 25%;
+  background: linear-gradient(90deg, transparent, var(--neel), transparent);
+  animation: sweep 1.15s ease-in-out infinite;
+}
+
+/* A plan step completing. The tick draws itself rather than appearing. */
+@keyframes draw {
+  from { stroke-dashoffset: 16; }
+  to   { stroke-dashoffset: 0; }
+}
+
+.tick path {
+  stroke-dasharray: 16;
+  animation: draw 0.3s var(--ease-out) both;
+}
+
+/* A modal arriving, and the scrim behind it. */
+@keyframes scrim { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lift {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.scrim { animation: scrim 0.18s ease-out both; }
+.lift  { animation: lift 0.26s var(--ease-out) both; }
+
+/* A row the operator is about to act on. The border does the work; the card
+ * does not jump, because a queue that moves under the cursor is worse. */
+.actionable { transition: border-color 0.16s ease, box-shadow 0.16s ease; }
+.actionable:hover { border-color: var(--rule-strong); box-shadow: var(--shadow-lift); }
+
+/* Buttons acknowledge the press. Depth, not colour, so it reads in any state. */
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+/* Product cards lift on hover because they are the thing you click. */
+.liftable { transition: transform 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out); }
+.liftable:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
+
+/* A skeleton, so a loading catalogue has the shape of the thing arriving. */
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--paper-sunk) 25%, var(--rule) 50%, var(--paper-sunk) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+/* A risk dial filling to its score, so the number is seen being computed. */
+@keyframes fill-dial { from { opacity: 0; transform: rotate(-90deg) scale(0.9); } to { opacity: 1; transform: none; } }
+.dial { animation: fill-dial 0.5s var(--ease-out) both; }
+
+/* A live microphone. The ring makes it unmistakable that we are recording,
+ * which matters more than subtlety when audio is being captured. */
+@keyframes rec {
+  0%   { box-shadow: 0 0 0 0 rgba(176, 67, 44, 0.45); }
+  100% { box-shadow: 0 0 0 9px rgba(176, 67, 44, 0); }
+}
+
+.pulse-rec { animation: rec 1.5s ease-out infinite; }
+
+
+/* ── App shell ────────────────────────────────────────
+ *
+ * Every page carried its own hand-rolled header before, so there was no way
+ * back from an order page and no constant place for identity or the cart.
+ * One shell now carries all of it.
+ */
+
+.shell {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(250, 248, 245, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.shell-in {
+  max-width: 92rem;
+  margin: 0 auto;
+  padding: 0.6rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  font-weight: 650;
+  letter-spacing: -0.022em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.shell-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: auto;
+}
+
+/* A nav link reads as a place, not a button. The active one is marked by
+ * weight and a gold underline rather than a filled pill. */
+.navlink {
+  position: relative;
+  padding: 0.4rem 0.6rem;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  transition: color 0.14s ease, background-color 0.14s ease;
+  white-space: nowrap;
+}
+
+.navlink:hover {
+  color: var(--ink);
+  background: var(--paper-sunk);
+}
+
+.navlink[aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.navlink[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  bottom: 0.08rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--haldi);
+}
+
+.page {
+  max-width: 92rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+.page-narrow {
+  max-width: 64rem;
+}
+
+/* ── Workspace: the catalogue beside the agent ──────────────── */
+
+.workspace {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 23rem);
+  align-items: start;
+}
+
+/* The rail is a peer of the catalogue, not a drawer. It sticks, and its
+ * composer is pinned to its own bottom edge so typing is always reachable
+ * without scrolling the rail into view first. */
+.rail {
+  position: sticky;
+  top: 4.5rem;
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 6rem);
+  overflow: hidden;
+}
+
+/* Before the first message there is nothing to scroll, so the rail shrinks to
+ * its content instead of reserving a screen of blank space. */
+.rail.rail-idle {
+  height: auto;
+  max-height: calc(100dvh - 6rem);
+}
+
+.rail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  min-height: 0;
+}
+
+/* ── Product tiles ───────────────────────────────────
+ *
+ * Deliberately not the same rounded-card-with-shadow used by every other
+ * block: a tile is a flat tinted field with a hairline, and only the one
+ * clickable thing inside it moves.
+ */
+
+.grid-products {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14.5rem), 1fr));
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 0.85rem;
+  transition: border-color 0.16s ease;
+}
+
+.tile:hover {
+  border-color: var(--rule-strong);
+}
+
+.tile-field {
+  position: relative;
+  height: 5.5rem;
+  border-radius: 9px;
+  margin-bottom: 0.75rem;
+  display: grid;
+  place-items: center;
+  font-size: 2.2rem;
+  overflow: hidden;
+}
+
+/* A soft diagonal sheen, so the tinted field reads as a surface rather than a
+ * flat swatch standing in for a missing photograph. */
+.tile-field::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 55%);
+  pointer-events: none;
+}
+
+.tile-brand {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+.tile-title {
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.32;
+  margin: 0.1rem 0 0.4rem;
+}
+
+.tile-price {
+  font-size: 1.02rem;
+  font-weight: 650;
+}
+
+.tile-mrp {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.tile-off {
+  font-size: 0.75rem;
+  color: var(--moss);
+  font-weight: 600;
+}
+
+/* ── The cart count in the shell ──────────────────────── */
+
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--haldi);
+  color: #241a06;
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+/* ── Turns in the agent rail ───────────────────────────── */
+
+.turn {
+  margin-bottom: 0.85rem;
+}
+
+.turn-who {
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+  margin-bottom: 0.22rem;
+}
+
+.turn-you {
+  padding: 0.55rem 0.72rem;
+  background: var(--paper-sunk);
+  border-radius: 10px 10px 10px 3px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* The agent speaks in indigo throughout this product, so its replies are
+ * always distinguishable from the platform's own text. */
+.turn-agent {
+  padding: 0.1rem 0 0.1rem 0.72rem;
+  border-left: 2px solid var(--neel);
+  font-size: 0.88rem;
+  line-height: 1.62;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+}
+
+/* A suggestion the buyer can press, instead of an empty box and a blinking
+ * cursor. */
+.seed {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.4rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.seed:hover {
+  border-color: var(--neel-soft);
+  background: var(--neel-wash);
+  color: var(--neel-ink);
+}
+
+/* ── Narrow screens ─────────────────────────────────────
+ *
+ * The rail used to become a fixed 32rem box wedged under the catalogue, which
+ * is unusable on a phone. It now collapses into normal flow, sized to the
+ * viewport, and the shell nav scrolls sideways rather than wrapping into
+ * three stacked rows.
+ */
+
+@media (max-width: 62rem) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .rail {
+    position: static;
+    height: min(72dvh, 32rem);
+    /* The agent comes first on a phone: it is the fast way past scrolling. */
+    order: -1;
+  }
+  /* An idle rail on a phone is a prompt, not a panel: it takes only the room
+     its suggestions need, so the catalogue stays visible underneath. */
+  .rail.rail-idle {
+    height: auto;
+  }
+}
+
+@media (max-width: 40rem) {
+  .shell-in {
+    padding: 0.5rem 0.9rem;
+    gap: 0.5rem;
+  }
+  .page {
+    padding: 1rem 0.9rem 3rem;
+  }
+  .shell-nav {
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .shell-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .navlink {
+    padding: 0.4rem 0.45rem;
+    font-size: 0.82rem;
+  }
+  .grid-products {
+    gap: 0.7rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5rem), 1fr));
+  }
+  .tile-field {
+    height: 4.5rem;
+    font-size: 1.8rem;
+  }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────
+ * Last in the file deliberately: it must override every animation and
+ * transition declared above, including the motion system. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:active:not(:disabled),
+  .liftable:hover { transform: none !important; }
+  .shell { backdrop-filter: none; }
+}
+
+
+/* ── The walkthrough: showing the architecture, not describing it ───────
+ *
+ * This surface exists to be read under scrutiny by someone who has not seen
+ * the codebase and has a few minutes. Two things are therefore different here
+ * from the rest of the product:
+ *
+ *  - the model/engine distinction is carried by colour and by position, never
+ *    by colour alone, because the whole argument rests on it being legible,
+ *  - the trail gets a spine, so a long run reads as one sequence rather than
+ *    a stack of unrelated cards.
+ */
+
+/* A journey card. Larger hit area than a nav item because it starts a run
+ * that takes seconds, and the question is the thing being chosen. */
+.journey {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  text-align: left;
+  padding: 1rem 1.1rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.journey:hover:not(:disabled) {
+  border-color: var(--rule-strong);
+  border-left-color: var(--haldi);
+  box-shadow: var(--shadow-lift);
+}
+
+.journey[data-chosen="true"] {
+  border-left-color: var(--haldi);
+  background: var(--haldi-wash);
+}
+
+.journey:disabled { cursor: wait; }
+
+/* The handoff strip: every actor in the run, in order, as coloured segments.
+ * A judge should be able to see the alternation between a model reading and
+ * an engine deciding without reading a single row. */
+.handoff {
+  display: flex;
+  gap: 2px;
+  margin-top: 0.7rem;
+  border-radius: 999px;
+  overflow: hidden;
+  height: 8px;
+  background: var(--paper-sunk);
+}
+
+.handoff span {
+  flex: 1 1 0;
+  min-width: 3px;
+}
+
+/* The spine down the trail, so consecutive steps read as one sequence. */
+.trail {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1.6rem;
+  display: grid;
+  gap: 0.9rem;
+  position: relative;
+}
+
+.trail::before {
+  content: "";
+  position: absolute;
+  left: 0.43rem;
+  top: 0.9rem;
+  bottom: 0.9rem;
+  width: 1px;
+  background: var(--rule);
+}
+
+.trail > li { position: relative; }
+
+/* The step's number sits on the spine rather than inside the card, which is
+ * what makes the sequence visible at a glance. */
+.trail > li > .pip {
+  position: absolute;
+  left: -1.6rem;
+  top: 1rem;
+  width: 0.88rem;
+  height: 0.88rem;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--rule-strong);
+  z-index: 1;
+}
+
+.trail > li[data-tone="pass"] > .pip { border-color: var(--moss); background: var(--moss); }
+.trail > li[data-tone="fail"] > .pip { border-color: var(--brick); background: var(--brick); }
+.trail > li[data-tone="skip"] > .pip { border-color: var(--rule-strong); background: var(--paper); }
+
+/* An event row. The left border is the actor's kind; the label repeats it in
+ * words, so the page does not depend on colour vision. */
+.ev {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.55rem 0.72rem;
+  border-radius: 8px;
+  border-left: 2px solid var(--ink-faint);
+  background: var(--paper-sunk);
+}
+
+.ev-kind {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 650;
+}
+
+/* A pivotal event is the one a judge should not scroll past, so it is the
+ * only row on the page allowed to raise its voice. */
+.ev[data-pivotal="true"] {
+  background: var(--brick-wash);
+  border-left-color: var(--brick);
+  box-shadow: inset 0 0 0 1px rgba(176, 67, 44, 0.14);
+}
+
+/* A statistic in the run header. Bigger than body text because these four
+ * numbers are the summary a presenter reads out. */
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+  margin-top: 0.85rem;
+}
+
+.tally > div { display: grid; gap: 0.1rem; }
+
+.tally dt {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+  margin: 0;
+}
+
+.tally dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 40rem) {
+  .tally { gap: 1rem; }
+  .tally dd { font-size: 1.25rem; }
+  .trail { padding-left: 1.3rem; }
+  .trail > li > .pip { left: -1.3rem; }
+}
