@@ -159,7 +159,7 @@ So you state the conditions instead:
 > be in stock, and I need it before the 28th.*
 
 A model reads that sentence into a constraint list — and does nothing else.
-`solveConstraints()` (pure, 48 unit tests) decides what qualifies:
+`solveConstraints()` (pure, 55 unit tests) decides what qualifies:
 
 ```
 4 of 12 offers satisfy all 6 constraints.
@@ -573,7 +573,7 @@ Rs 21,999 order → store credit, capped at Rs 200 rather than 5%).
 ## Tests
 
 ```bash
-npm test          # 266 tests, including the 17-scenario eval suite
+npm test          # 361 tests, including the 17-scenario eval suite
 npm run test:live # the same scenarios again, with a real model in the loop
 npm run models    # which models your GROQ_API_KEY can actually reach
 ```
@@ -582,7 +582,7 @@ npm run models    # which models your GROQ_API_KEY can actually reach
   (verifier and grounding) and the state machine: purity,
   the money invariant (`amount ≤ order value`, enforced even for an operator
   override), window arithmetic, the confidence floor, verifier rejections.
-- `tests/finder.test.ts` — 48 unit tests over the constraint solver and the
+- `tests/finder.test.ts` — 55 unit tests over the constraint solver and the
   offer economics: that a rejection names the constraint *and* the value that
   failed it, that a deadline is judged against the confident date rather than
   the optimistic one, that ranking is by expected total rather than sticker,
@@ -592,7 +592,7 @@ npm run models    # which models your GROQ_API_KEY can actually reach
   seller's real defect rate reaches the cost, and that **the worked example
   printed on `/find` still produces the result the page claims.** A demo whose
   headline example quietly breaks is worse than no demo.
-- `tests/needs.test.ts` — 20 tests over need-based matching: that eight
+- `tests/needs.test.ts` — 17 tests over need-based matching: that eight
   described needs each find the right product without naming it, that relevance
   outranks price (the pillow above the cheaper face oil), and that a category
   the extractor *inferred* never scores relevance — it leaked once and ranked a
@@ -603,13 +603,13 @@ npm run models    # which models your GROQ_API_KEY can actually reach
   standing, that a three-order sample never restricts listings, that an
   organised pattern is caught even when every per-claim signal is clean, and
   that an upheld claim is never held against the buyer.
-- `tests/speech.test.ts` — 39 tests over what the agent says aloud: that
+- `tests/speech.test.ts` — 58 tests over what the agent says aloud: that
   rupees are spoken ungrouped, that markdown and emoji never reach the voice,
   that a tight delivery date is not spoken as a promise, that "nothing is
   ordered yet" is always in the cart message, and that every narration already
   survives the sanitiser unchanged — if those two disagree, the audio says
   something the screen never showed.
-- `tests/pipeline.test.ts` — 31 integration tests against a real MongoDB,
+- `tests/pipeline.test.ts` — 33 integration tests against a real MongoDB,
   walking the whole platform: seed, multilingual search, the mandate, the gate,
   ordering, fulfilment, four complaint scenarios, approval, and autonomous
   escalation. **No model key required** — these exercise the floor.
@@ -714,7 +714,7 @@ src/
     shop/           storefront with the agent rail
     orders/         buyer timeline, tracking, complaints
     desk/           the approval gate and demo controls
-    api/            23 routes
+    api/            28 routes
   components/       AgentRail · ComplaintForm · PlanTrace · EvalPanel · ui
   app/system/       "How it works" — the engines, gates and machine on screen
 ```
