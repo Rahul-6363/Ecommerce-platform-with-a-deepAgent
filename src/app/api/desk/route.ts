@@ -106,6 +106,27 @@ export async function GET() {
           translatedComplaint: c.translatedComplaint,
           evidenceFlags: c.evidenceFlags,
           verdict: c.verdict,
+          /**
+           * Per-issue rows, so the operator can decide one issue without
+           * being forced to be wrong about another. Empty on a single-issue
+           * claim, which the UI reads as "nothing extra to show".
+           */
+          issues: (c.issues ?? []).map((i) => ({
+            key: i.key,
+            issueType: i.issueType,
+            excerpt: i.excerpt,
+            status: i.status,
+            payableInr: i.payableInr,
+            engineAmountInr: i.verdict?.amountInr ?? 0,
+            remedy: i.verdict?.remedy ?? "",
+            clauseIds: i.verdict?.clauseIds ?? [],
+            adjustments: i.adjustments ?? [],
+            subsumedBy: i.subsumedBy ?? "",
+            resolution: i.resolution ?? null,
+          })),
+          multiIssue: c.multiIssue ?? false,
+          totalPayableInr: c.totalPayableInr ?? 0,
+          uncappedTotalInr: c.uncappedTotalInr ?? 0,
           authenticity: c.authenticity,
           draftMessage: c.draftMessage,
           draftVerified: c.draftVerified,

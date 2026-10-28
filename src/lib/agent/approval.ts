@@ -24,6 +24,19 @@ export type Decision = {
   /** An operator may overrule the engine's remedy; it is recorded as an override. */
   overrideRemedy?: string;
   overrideAmountInr?: number;
+  /**
+   * Decide individual issues on a multi-issue claim.
+   *
+   * Keyed by the issue `key`. An issue left out of this map follows the
+   * claim-level `approve`, so the existing single-decision call still works
+   * unchanged on a multi-issue claim.
+   *
+   * This exists because approving a two-issue claim as one unit forces the
+   * operator to be wrong about one of them: a genuine dead unit alongside a
+   * missing-accessory claim they do not believe used to mean paying both or
+   * rejecting both.
+   */
+  issueDecisions?: Record<string, { approve: boolean; note?: string; amountInr?: number }>;
 };
 
 export type DecisionResult = {
@@ -33,6 +46,14 @@ export type DecisionResult = {
   amountInr: number;
   mailStatus: string;
   overridden: boolean;
+  /** Per-issue outcomes on a multi-issue claim. Empty for a single issue. */
+  issues: {
+    key: string;
+    issueType: string;
+    decision: "APPROVED" | "REJECTED";
+    approvedInr: number;
+    note: string;
+  }[];
 };
 
 export async function decideClaim(d: Decision): Promise<DecisionResult> {
@@ -57,12 +78,86 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
       (d.overrideAmountInr !== undefined && d.overrideAmountInr !== claim.verdict.amountInr));
 
   const remedy = d.approve ? (d.overrideRemedy ?? claim.verdict.remedy) : "NONE";
+
+  /* ── Per-issue settlement ────────────────────────────────────────────
+   *
+   * A multi-issue claim is settled issue by issue, so one can be rejected
+   * while another is paid. Three rules, in order:
+   *
+   *  1. An issue with no explicit decision follows the claim-level one, which
+   *     keeps every existing single-decision caller working unchanged.
+   *  2. An operator amount is honoured but re-capped. A person may overrule
+   *     the engine; they may not exceed the order value, and that is enforced
+   *     here rather than trusted — the same invariant the engine holds.
+   *  3. The aggregate is capped again across the issues actually approved.
+   *     The engine already capped its own total, but an operator raising two
+   *     issues independently could otherwise sum past the order value.
+   */
+  const claimIssues = claim.issues ?? [];
+  const settled: {
+    key: string;
+    issueType: string;
+    decision: "APPROVED" | "REJECTED";
+    approvedInr: number;
+    note: string;
+  }[] = [];
+
+  let issueTotal = 0;
+
+  if (claimIssues.length > 0) {
+    // Most serious first so that if the aggregate cap bites, it trims the
+    // least serious issue — never whichever one happens to be stored first.
+    const ordered = [...claimIssues].sort((a, b) => b.payableInr - a.payableInr);
+
+    for (const issue of ordered) {
+      const explicit = d.issueDecisions?.[issue.key];
+      const approveThis = explicit ? explicit.approve : d.approve;
+
+      if (!approveThis) {
+        settled.push({
+          key: issue.key,
+          issueType: issue.issueType,
+          decision: "REJECTED",
+          approvedInr: 0,
+          note: explicit?.note ?? d.note ?? "",
+        });
+        continue;
+      }
+
+      // Start from what the engine said was payable on this issue, which is
+      // already net of the subsumption and cap rules.
+      const requested = Math.max(0, Math.trunc(explicit?.amountInr ?? issue.payableInr));
+      const room = Math.max(0, order.amountInr - issueTotal);
+      const approvedInr = Math.min(requested, room);
+
+      issueTotal += approvedInr;
+      settled.push({
+        key: issue.key,
+        issueType: issue.issueType,
+        decision: "APPROVED",
+        approvedInr,
+        note: explicit?.note ?? d.note ?? "",
+      });
+    }
+  }
+
+  // An operator who approved the claim but rejected every individual issue on
+  // it has rejected the claim. Recording that as APPROVED would make the state
+  // disagree with the per-issue rows, and the claim pays nothing either way.
+  const anyIssueApproved = settled.some((x) => x.decision === "APPROVED");
+  const effectiveApprove =
+    d.approve && !(settled.length > 0 && d.issueDecisions && !anyIssueApproved);
+
   // Still invariant, even for a human: the payout cannot exceed the order value.
-  const amountInr = d.approve
-    ? Math.max(0, Math.min(d.overrideAmountInr ?? claim.verdict.amountInr, order.amountInr))
+  // On a multi-issue claim the amount paid is the sum of the issues actually
+  // approved, so rejecting one issue genuinely reduces what moves.
+  const amountInr = effectiveApprove
+    ? claimIssues.length > 0 && d.issueDecisions
+      ? issueTotal
+      : Math.max(0, Math.min(d.overrideAmountInr ?? claim.verdict.amountInr, order.amountInr))
     : 0;
 
-  const state = d.approve ? "APPROVED" : "REJECTED";
+  const state = effectiveApprove ? "APPROVED" : "REJECTED";
 
   // Through the state machine: a claim cannot reach APPROVED except from a
   // state the machine allows, so the gate cannot be bypassed by a stray write.
@@ -70,7 +165,7 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
     claim.claimNo,
     state,
     {
-      "approval.decision": d.approve ? "APPROVED" : "REJECTED",
+      "approval.decision": effectiveApprove ? "APPROVED" : "REJECTED",
       "approval.decidedBy": d.operatorEmail,
       "approval.decidedAt": nowAt,
       "approval.note": d.note ?? "",
@@ -78,14 +173,14 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
     },
     {
       actor: `operator:${d.operatorEmail}`,
-      reason: d.approve ? `approved ${remedy}` : "rejected",
+      reason: effectiveApprove ? `approved ${remedy}` : "rejected",
     },
   );
 
   await emit({
-    type: d.approve ? "claim.approved" : "claim.rejected",
+    type: effectiveApprove ? "claim.approved" : "claim.rejected",
     actor: `operator:${d.operatorEmail}`,
-    summary: d.approve
+    summary: effectiveApprove
       ? `Approved ${remedy.replace(/_/g, " ")}${amountInr > 0 ? ` ₹${amountInr}` : ""}` +
         (overridden ? ` — OVERRIDE of the engine's ${claim.verdict.remedy} ₹${claim.verdict.amountInr}` : "")
       : `Rejected the claim${d.note ? `: ${d.note}` : ""}`,
@@ -99,9 +194,59 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
     claimId: claim._id, orderId: order._id, userId: claim.userId,
   });
 
+  /* ── Record each issue's own outcome ─────────────────────────────── */
+
+  if (settled.length > 0) {
+    for (const x of settled) {
+      await Claim.updateOne(
+        { claimNo: claim.claimNo, "issues.key": x.key },
+        {
+          $set: {
+            "issues.$.resolution": {
+              decision: x.decision,
+              decidedBy: d.operatorEmail,
+              decidedAt: nowAt,
+              note: x.note,
+              approvedInr: x.approvedInr,
+            },
+          },
+        },
+      );
+    }
+
+    if (claimIssues.length > 1) {
+      for (const x of settled) {
+        await emit({
+          type: "claim.issue_decided",
+          actor: `operator:${d.operatorEmail}`,
+          summary:
+            `${claim.claimNo} ${x.key} (${x.issueType}): ${x.decision.toLowerCase()}` +
+            (x.approvedInr > 0 ? ` ₹${x.approvedInr}` : ""),
+          payload: { ...x, claimNo: claim.claimNo },
+          claimId: claim._id, orderId: order._id, userId: claim.userId,
+        });
+      }
+
+      await emit({
+        type: "claim.issues_adjudicated",
+        actor: `operator:${d.operatorEmail}`,
+        summary:
+          `${settled.filter((x) => x.decision === "APPROVED").length} of ${settled.length} ` +
+          `issues approved on ${claim.claimNo}, paying ₹${issueTotal} of a ₹${order.amountInr} cap`,
+        payload: {
+          settled,
+          totalApprovedInr: issueTotal,
+          capInr: order.amountInr,
+          engineTotalInr: claim.totalPayableInr ?? claim.verdict.amountInr,
+        },
+        claimId: claim._id, orderId: order._id, userId: claim.userId,
+      });
+    }
+  }
+
   /* ── Execute the remedy ─────────────────────────────────────────── */
 
-  if (d.approve) {
+  if (effectiveApprove) {
     await executeRemedy({
       claimId: String(claim._id),
       orderId: String(order._id),
@@ -133,8 +278,8 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
   await recordClaimOutcome({
     orderId: String(order._id),
     sku: claim.sku || undefined,
-    upheld: d.approve,
-    refundedInr: d.approve ? amountInr : 0,
+    upheld: effectiveApprove,
+    refundedInr: effectiveApprove ? amountInr : 0,
     claimNo: claim.claimNo,
   });
 
@@ -144,7 +289,7 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
     name: buyer.name,
     claimNo: claim.claimNo,
     orderNo: order.orderNo,
-    approved: d.approve,
+    approved: effectiveApprove,
     remedy,
     amountInr,
     deadlineAt: claim.verdict.deadlineAt ? new Date(claim.verdict.deadlineAt) : null,
@@ -157,23 +302,23 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
     to: buyer.email,
     subject: mail.subject,
     html: mail.html,
-    template: d.approve ? "claim_approved" : "claim_rejected",
+    template: effectiveApprove ? "claim_approved" : "claim_rejected",
     claimId: String(claim._id),
     orderId: String(order._id),
   });
 
-  const finalState = d.approve ? "RESOLVED" : "REJECTED";
+  const finalState = effectiveApprove ? "RESOLVED" : "REJECTED";
   await transitionClaim(
     claim.claimNo,
     finalState,
     { resolvedAt: nowAt },
-    { actor: "ActionAgent", reason: d.approve ? "remedy executed" : "closed as rejected" },
+    { actor: "ActionAgent", reason: effectiveApprove ? "remedy executed" : "closed as rejected" },
   );
 
   await emit({
     type: "claim.resolved",
     actor: "ActionAgent",
-    summary: d.approve
+    summary: effectiveApprove
       ? `Executed ${remedy.replace(/_/g, " ")}${amountInr > 0 ? ` ₹${amountInr}` : ""} and notified ${buyer.email}`
       : `Closed as rejected and notified ${buyer.email}`,
     payload: { remedy, amountInr, mailStatus: sent.status },
@@ -187,6 +332,7 @@ export async function decideClaim(d: Decision): Promise<DecisionResult> {
     amountInr,
     mailStatus: sent.status,
     overridden,
+    issues: settled,
   };
 }
 

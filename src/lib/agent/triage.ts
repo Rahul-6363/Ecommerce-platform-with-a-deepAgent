@@ -137,7 +137,7 @@ export async function triage(complaint: string): Promise<TriageResult> {
  * "no" inside "note" does not fire. Ordered by specificity: a counterfeit
  * allegation outranks a generic damage word.
  */
-const PATTERNS: { issue: IssueType; weight: number; words: string[] }[] = [
+export const PATTERNS: { issue: IssueType; weight: number; words: string[] }[] = [
   {
     issue: "COUNTERFEIT", weight: 3,
     words: ["fake", "duplicate", "counterfeit", "first copy", "firstcopy", "nakli", "naqli", "duplicat",
@@ -173,6 +173,11 @@ const PATTERNS: { issue: IssueType; weight: number; words: string[] }[] = [
     issue: "MISSING_PART", weight: 2,
     words: ["missing", "not in the box", "no charger", "without charger", "no cable", "no adapter",
       "accessory missing", "part missing", "incomplete", "nahi tha box me", "gayab",
+      // Hindi puts the negation last: "box me nahi tha", not "nahi tha box me".
+      // Both orders are listed because a buyer writes the natural one, and a
+      // keyword list is only as good as the phrasings actually in it.
+      "box me nahi", "box mein nahi", "me nahi tha", "mein nahi tha", "nahi tha",
+      "nahi mila box", "box me nahi aaya",
       "गायब", "नहीं था", "ಇಲ್ಲ ಬಾಕ್ಸ್", "ಕಾಣೆ", "இல்லை", "காணவில்லை", "లేదు", "নেই", "ગુમ"],
   },
   {
@@ -192,7 +197,7 @@ const PATTERNS: { issue: IssueType; weight: number; words: string[] }[] = [
   },
 ];
 
-const FLAG_FOR: Record<IssueType, keyof EvidenceFlags | null> = {
+export const FLAG_FOR: Record<IssueType, keyof EvidenceFlags | null> = {
   DOA: "stated_fault",
   DAMAGED: null,
   MISSING_PART: "stated_missing",
@@ -286,6 +291,37 @@ function normLang(l?: string): LangCode {
   return ok.includes(k) ? k : "en";
 }
 
-function escapeRe(s: string): string {
+export function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Score one fragment of a complaint against the keyword table.
+ *
+ * Exported so the issue splitter classifies a clause with exactly the table
+ * `keywordTriage` uses. Two keyword maps that could disagree about what
+ * "missing" means is how a buyer gets a different answer depending on which
+ * code path read their sentence.
+ */
+export function matchIssue(
+  fragment: string,
+): { issue: IssueType; score: number; flag: keyof EvidenceFlags | null } | null {
+  const text = ` ${fragment.toLowerCase().replace(/[.,!?;:()"']/g, " ")} `;
+
+  const scores = new Map<IssueType, number>();
+  for (const p of PATTERNS) {
+    for (const w of p.words) {
+      const needle = w.toLowerCase();
+      const hit = /^[\x20-\x7e]+$/.test(needle)
+        ? new RegExp(`(^|[^a-z])${escapeRe(needle)}([^a-z]|$)`, "i").test(text)
+        : text.includes(needle);
+      if (hit) scores.set(p.issue, (scores.get(p.issue) ?? 0) + p.weight);
+    }
+  }
+
+  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+  if (ranked.length === 0) return null;
+
+  const [issue, score] = ranked[0];
+  return { issue, score, flag: FLAG_FOR[issue] };
 }

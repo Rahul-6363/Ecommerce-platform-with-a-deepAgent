@@ -94,6 +94,18 @@ const ProductSchema = new Schema(
     stock: { type: Number, default: 0, min: 0 },
     sellerId: { type: String, required: true, index: true },
     policyId: { type: String, required: true },
+    /**
+     * The product photograph, served from `public/products/<sku>.jpg`.
+     *
+     * Downloaded into the repository rather than hotlinked, so the storefront
+     * does not depend on a third party staying up — six of the original URLs
+     * 404'd during the import, which is exactly the failure a hotlink would
+     * have shipped to a buyer instead of to the build.
+     *
+     * `imageEmoji` is kept as the fallback: a card whose photo fails to load
+     * shows the emoji on its accent tint rather than a broken-image icon.
+     */
+    imageUrl: { type: String, default: "" },
     imageEmoji: { type: String, default: "📦" },
     accentHex: { type: String, default: "#f97316" },
     // Box contents: what a MISSING_PART claim is adjudicated against.
@@ -252,6 +264,30 @@ const OrderSchema = new Schema(
     // Set when the conversational agent placed this order on the buyer behalf.
     placedByAgent: { type: Boolean, default: false },
     agentSessionId: { type: String, default: "" },
+
+    /* ── Proactive rescue ──────────────────────────────────────────────
+     *
+     * State for the rescue agent, kept on the order rather than in memory for
+     * the same reason the claim plan is: a tick that runs twenty minutes later
+     * has to know what the last one already did.
+     *
+     * `rescueActions` is the idempotency record. Without it a second tick
+     * re-proposes the question the buyer is already looking at, and
+     * "prevention" becomes pestering. `rescueAttempts` is the retry limit:
+     * past it the order goes to a person instead of a fourth attempt.
+     */
+    rescueAttempts: { type: Number, default: 0 },
+    /** Action names already executed or queued on this order. */
+    rescueActions: { type: [String], default: [] },
+    rescueLastAt: { type: Date, default: null },
+    /** Risk score when the rescue agent first acted, to measure the outcome. */
+    rescueBaselineScore: { type: Number, default: null },
+    rescueState: {
+      type: String,
+      enum: ["NONE", "WATCHING", "INTERVENED", "AWAITING_APPROVAL", "RESOLVED", "HANDOFF"],
+      default: "NONE",
+      index: true,
+    },
   },
   opts,
 );
@@ -342,6 +378,82 @@ const ClaimSchema = new Schema(
       narrative: { type: String, default: "" },
       reviewRequired: { type: Boolean, default: true },
     },
+
+    /* ── Per-issue adjudication ────────────────────────────────────────
+     *
+     * One complaint can carry two real problems, and the claim used to hold
+     * exactly one `issueType` and one `verdict` — so the second was recorded
+     * in triage and then had nowhere to go.
+     *
+     * This array is additive and optional: a single-issue claim written
+     * before this existed, or seeded by the demo data, has an empty `issues`
+     * and reads exactly as it always did through `issueType` and `verdict`.
+     * Those two fields are still written for every claim and remain the
+     * headline answer, so nothing downstream had to learn about this array to
+     * keep working.
+     *
+     * `payableInr` is the per-issue amount AFTER the cross-issue rules, and
+     * the sum across the array is capped at the order value by
+     * `adjudicateIssues`. `verdict.amountInr` on each row is what the
+     * entitlement engine returned for that issue alone, kept so an operator
+     * can see what was trimmed and why.
+     */
+    issues: {
+      type: [
+        {
+          _id: false,
+          /** Stable within the claim, so one issue can be decided by name. */
+          key: { type: String, required: true },
+          issueType: { type: String, enum: ISSUE_TYPES, required: true },
+          excerpt: { type: String, default: "" },
+          confidence: { type: Number, default: 0 },
+          evidenceFlags: { type: Schema.Types.Mixed, default: {} },
+          /** Evidence filenames that bear on this issue specifically. */
+          evidenceFilenames: { type: [String], default: [] },
+          status: {
+            type: String,
+            enum: ["ELIGIBLE", "NOT_ELIGIBLE", "SUBSUMED", "CAPPED", "NEEDS_REVIEW"],
+            default: "NEEDS_REVIEW",
+          },
+          /** What this issue actually pays after the aggregate cap. */
+          payableInr: { type: Number, default: 0 },
+          /** Why payableInr differs from verdict.amountInr, when it does. */
+          adjustments: { type: [String], default: [] },
+          subsumedBy: { type: String, default: "" },
+          /** The engine's verdict for this issue alone. Never edited. */
+          verdict: {
+            eligible: { type: Boolean, default: false },
+            remedy: { type: String, enum: REMEDIES, default: "ESCALATE_AMBIGUOUS" },
+            alternatives: { type: [String], default: [] },
+            amountInr: { type: Number, default: 0 },
+            deadlineAt: { type: Date, default: null },
+            clauseIds: { type: [String], default: [] },
+            reasons: { type: [String], default: [] },
+            confidence: { type: Number, default: 0 },
+          },
+          /**
+           * Per-issue resolution, so one issue can be rejected while another
+           * is approved without the claim lying about either.
+           */
+          resolution: {
+            decision: { type: String, enum: ["APPROVED", "REJECTED", null], default: null },
+            decidedBy: { type: String, default: "" },
+            decidedAt: { type: Date, default: null },
+            note: { type: String, default: "" },
+            /** The amount actually approved for this issue. */
+            approvedInr: { type: Number, default: 0 },
+          },
+        },
+      ],
+      default: [],
+    },
+
+    /** Set when more than one distinct issue was read from the complaint. */
+    multiIssue: { type: Boolean, default: false },
+    /** Aggregate across `issues`, capped at the order value. */
+    totalPayableInr: { type: Number, default: 0 },
+    /** What the per-issue remedies summed to before the cap was applied. */
+    uncappedTotalInr: { type: Number, default: 0 },
 
     state: { type: String, enum: CLAIM_STATES, default: "INTAKE", index: true },
 
@@ -637,6 +749,11 @@ export type LeanOrder = {
   buyerPriorRto: number;
   stockAvailable: boolean;
   placedByAgent: boolean;
+  rescueAttempts: number;
+  rescueActions: string[];
+  rescueLastAt: Date | null;
+  rescueBaselineScore: number | null;
+  rescueState: "NONE" | "WATCHING" | "INTERVENED" | "AWAITING_APPROVAL" | "RESOLVED" | "HANDOFF";
   agentSessionId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -677,6 +794,31 @@ export type LeanEvidence = {
   uploadedAt: Date;
 };
 
+export type LeanClaimIssue = {
+  key: string;
+  issueType: string;
+  excerpt: string;
+  confidence: number;
+  evidenceFlags: Record<string, boolean>;
+  evidenceFilenames: string[];
+  status: "ELIGIBLE" | "NOT_ELIGIBLE" | "SUBSUMED" | "CAPPED" | "NEEDS_REVIEW";
+  payableInr: number;
+  adjustments: string[];
+  subsumedBy: string;
+  verdict: {
+    eligible: boolean; remedy: string; alternatives: string[];
+    amountInr: number; deadlineAt: Date | null; clauseIds: string[];
+    reasons: string[]; confidence: number;
+  };
+  resolution: {
+    decision: "APPROVED" | "REJECTED" | null;
+    decidedBy: string;
+    decidedAt: Date | null;
+    note: string;
+    approvedInr: number;
+  };
+};
+
 export type LeanClaim = {
   _id: mongoose.Types.ObjectId;
   claimNo: string;
@@ -698,6 +840,15 @@ export type LeanClaim = {
     signals: { factor: string; points: number; detail: string }[];
     narrative: string; reviewRequired: boolean;
   };
+  /**
+   * Per-issue rows. Empty on a single-issue claim, including every claim
+   * written before this field existed — `issueType` and `verdict` remain the
+   * headline answer either way.
+   */
+  issues: LeanClaimIssue[];
+  multiIssue: boolean;
+  totalPayableInr: number;
+  uncappedTotalInr: number;
   state: string;
   draftMessage: string; draftVerified: boolean; verifierNotes: string[];
   evidence: LeanEvidence[];

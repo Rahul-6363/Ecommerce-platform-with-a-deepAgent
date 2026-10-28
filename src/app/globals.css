@@ -895,3 +895,628 @@ button, input, select, textarea {
   .trail { padding-left: 1.3rem; }
   .trail > li > .pip { left: -1.3rem; }
 }
+
+
+/* ── Forms: labels, hints and errors ────────────────────────────────────
+ *
+ * These existed only as inline styles scattered across routes, so two forms
+ * never looked the same and a validation message was whatever the page author
+ * reached for. Shared classes are the point: a buyer who has seen one error
+ * message on this platform should recognise the next one.
+ *
+ * `.field-error` carries role="alert" at the call site rather than relying on
+ * colour, because a message that is only red is invisible to a screen reader
+ * and to anyone who cannot distinguish it.
+ */
+
+.field-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-soft);
+  margin-bottom: 0.3rem;
+}
+
+.field-optional {
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-size: 0.76rem;
+}
+
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  margin: 0.3rem 0 0;
+}
+
+.field-error {
+  font-size: 0.8rem;
+  color: var(--brick);
+  line-height: 1.5;
+  margin: 0.35rem 0 0;
+  /* A marker as well as the colour, so the message does not depend on hue. */
+  padding-left: 0.9rem;
+  position: relative;
+}
+.field-error::before {
+  content: "!";
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+}
+
+/* An invalid control is outlined, not just captioned. */
+.field[aria-invalid="true"] {
+  border-color: var(--brick);
+}
+.field[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px var(--brick-wash);
+}
+
+/* ── Authentication pages ──────────────────────────────────────────────
+ *
+ * Centred, narrow and free of navigation: someone signing in has one job, and
+ * a header full of shop links is a way to lose them. The card is the only
+ * thing on the page.
+ */
+
+.auth-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+  background:
+    radial-gradient(120% 70% at 50% 0%, var(--neel-wash) 0%, transparent 60%),
+    var(--paper);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 25rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 1.9rem 1.7rem;
+  box-shadow: 0 1px 2px rgb(26 31 54 / 4%), 0 8px 24px -12px rgb(26 31 54 / 10%);
+}
+
+.auth-card-wide { max-width: 34rem; }
+
+.auth-brand {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--neel);
+  text-decoration: none;
+  margin-bottom: 1.1rem;
+}
+.auth-brand:hover { color: var(--ink); }
+
+.auth-title {
+  font-size: 1.45rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.35rem;
+}
+
+.auth-lede {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  margin: 0 0 1.3rem;
+  line-height: 1.6;
+}
+.auth-lede a { color: var(--neel); font-weight: 600; }
+
+.auth-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+
+.auth-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 1.2rem 0 0;
+}
+
+.auth-radio-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+.auth-radio-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: var(--paper);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.auth-radio-row label:hover { border-color: var(--rule-strong); }
+.auth-radio-row label:has(input:checked) {
+  border-color: var(--neel);
+  background: var(--neel-wash);
+  color: var(--neel-ink);
+}
+
+.auth-fineprint {
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  line-height: 1.6;
+  margin: 1.1rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+
+/* Demo accounts: present, clearly secondary, and absent in production. */
+.auth-demo {
+  margin-top: 1.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+
+.auth-demo-note {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  line-height: 1.6;
+  margin: 0.7rem 0;
+}
+
+.auth-demo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.auth-demo-list button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  background: var(--paper);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.auth-demo-list button:hover {
+  border-color: var(--neel-soft);
+  background: var(--neel-wash);
+}
+.auth-demo-list strong { font-size: 0.86rem; }
+.auth-demo-list span { font-size: 0.76rem; color: var(--ink-faint); }
+.auth-demo-list em {
+  font-size: 0.74rem;
+  color: var(--ink-soft);
+  font-style: normal;
+}
+
+@media (max-width: 30rem) {
+  .auth-card { padding: 1.5rem 1.2rem; }
+  .auth-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ── The account menu ───────────────────────────────────────────────────
+ *
+ * Replaces a bare first name next to a Sign out button, which gave a buyer
+ * nowhere to go for their own orders or addresses. Operator links appear here
+ * only for an operator — and the desk still checks the role on the server, so
+ * this hides a link rather than granting anything.
+ */
+
+.acct { position: relative; margin-left: 0.3rem; }
+
+.acct-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.3rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.acct-trigger:hover { border-color: var(--rule-strong); color: var(--ink); }
+.acct-trigger[aria-expanded="true"] {
+  border-color: var(--neel);
+  background: var(--neel-wash);
+  color: var(--neel-ink);
+}
+
+.acct-avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: var(--neel);
+  color: var(--paper-raised);
+  display: grid;
+  place-items: center;
+  font-size: 0.74rem;
+  font-weight: 700;
+  flex: none;
+}
+
+.acct-name { white-space: nowrap; font-weight: 600; }
+.acct-caret { font-size: 0.6rem; color: var(--ink-faint); }
+
+.acct-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  min-width: 12rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 11px;
+  box-shadow: 0 1px 2px rgb(26 31 54 / 5%), 0 12px 28px -14px rgb(26 31 54 / 18%);
+  padding: 0.35rem;
+  display: grid;
+  gap: 0.1rem;
+  z-index: 60;
+}
+
+.acct-head {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 0.25rem;
+}
+.acct-head strong { font-size: 0.86rem; }
+.acct-head span {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.acct-menu a,
+.acct-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  cursor: pointer;
+}
+.acct-menu a:hover,
+.acct-menu button:hover {
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+.acct-menu button { color: var(--brick); }
+
+@media (max-width: 48rem) {
+  .acct-name { display: none; }
+}
+
+
+/* ── Catalogue filters ──────────────────────────────────────────────────
+ *
+ * Chips rather than a sidebar of checkboxes. With ten categories and a price
+ * range, a buyer makes one or two choices and then wants the grid back — a
+ * permanent filter rail would spend a third of a phone screen on controls
+ * nobody is using after the first tap.
+ *
+ * Every chip is a real query parameter. There are no decorative filters here.
+ */
+
+.filter-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.filter-chip {
+  padding: 0.33rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  font: inherit;
+  font-size: 0.79rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.filter-chip:hover { border-color: var(--rule-strong); color: var(--ink); }
+.filter-chip.on {
+  border-color: var(--neel);
+  background: var(--neel);
+  color: var(--paper-raised);
+  font-weight: 600;
+}
+.filter-chip.clear {
+  border-style: dashed;
+  color: var(--brick);
+}
+.filter-chip.clear:hover { border-color: var(--brick); }
+
+.filter-count {
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .filter-count { margin-left: 0; width: 100%; }
+}
+
+
+/* ── The storefront on the front door ───────────────────────────────────
+ *
+ * The home page described the product and never showed it, so a visitor had
+ * to take "there is a catalogue" on trust. These sections are real database
+ * rows: category tiles with real counts, then two short strips rather than
+ * one long grid, because "most reviewed" and "biggest discount" answer
+ * different questions and an undifferentiated row of twelve answers neither.
+ */
+
+.home-shop {
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-raised);
+}
+.home-shop-in {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(2.2rem, 5vw, 3.4rem) 1.25rem;
+}
+
+.home-shop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.4rem;
+}
+.home-shop-head h2 { margin: 0 0 0.3rem; }
+.home-shop-head p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  max-width: 52ch;
+  line-height: 1.6;
+}
+
+/* Category tiles. */
+.cat-grid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  margin-bottom: 2.2rem;
+}
+.cat-tile {
+  display: grid;
+  gap: 0.15rem;
+  justify-items: center;
+  text-align: center;
+  padding: 1rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.cat-tile:hover {
+  border-color: var(--neel-soft);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px -10px rgb(26 31 54 / 18%);
+}
+.cat-emoji { font-size: 1.6rem; line-height: 1.2; }
+.cat-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.cat-count { font-size: 0.73rem; color: var(--ink-faint); }
+
+/* Product strips. */
+.strip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 0 0 0.8rem;
+}
+.strip-head h3 { margin: 0; font-size: 1.02rem; }
+.strip-head a {
+  font-size: 0.8rem;
+  color: var(--neel);
+  font-weight: 600;
+  text-decoration: none;
+}
+.strip-head a:hover { text-decoration: underline; }
+
+.prod-strip {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  margin-bottom: 2rem;
+}
+
+.mini-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.mini-card:hover {
+  border-color: var(--neel-soft);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px -10px rgb(26 31 54 / 18%);
+}
+
+/* A fixed aspect ratio, so a strip of cards does not stagger. */
+.mini-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border-radius: 9px;
+  font-size: 2rem;
+  margin-bottom: 0.35rem;
+}
+
+.mini-brand {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+}
+.mini-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.35;
+  /* Two lines, then ellipsis: a long title must not shove the price out of
+     line with its neighbours. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mini-price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.86rem;
+  margin-top: 0.15rem;
+}
+.mini-price s { color: var(--ink-faint); font-size: 0.76rem; }
+.mini-price em {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--haldi-deep);
+}
+.mini-meta { font-size: 0.73rem; color: var(--ink-faint); }
+
+/* The discovery prompt, placed where browsing is already failing. */
+.home-find {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--haldi);
+  border-radius: 12px;
+  background: var(--haldi-wash);
+}
+.home-find strong { font-size: 0.94rem; }
+.home-find p {
+  margin: 0.3rem 0 0;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  max-width: 56ch;
+  line-height: 1.6;
+}
+
+@media (max-width: 40rem) {
+  .cat-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); }
+  .prod-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+
+/* ── Product photographs ────────────────────────────────────────────────
+ *
+ * One rule set for every surface, because the fallback has to behave the same
+ * everywhere: a card whose photo is missing shows the product's emoji on its
+ * own accent tint, never a broken-image icon.
+ *
+ * The photographs are local files in `public/products/<sku>.jpg`, not
+ * hotlinks. Six of the source URLs 404'd during the import — hotlinking would
+ * have shipped that to a buyer rather than to the import.
+ *
+ * `aspect-ratio` on the wrapper and `object-fit: cover` on the image are what
+ * keep a grid from staggering when photographs have different proportions.
+ */
+
+.pimg {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  /* The tint is painted underneath, so a loading photo shows the product's
+     colour rather than a flash of white. */
+}
+
+.pimg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Fades in as it decodes rather than snapping, which reads as less janky
+     when a grid of twelve resolves at slightly different times. */
+  animation: pimg-in 0.25s ease both;
+}
+
+@keyframes pimg-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pimg-emoji { line-height: 1; }
+
+/* A grid tile: fixed 4:3, so twelve cards line up whatever their photos. */
+.pimg-card {
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+.pimg-card .pimg-emoji { font-size: 2.2rem; }
+
+/* A list row thumbnail, as used on /find beside each offer. */
+.pimg-thumb {
+  width: 3.4rem;
+  height: 3.4rem;
+  flex-shrink: 0;
+  border-radius: 11px;
+}
+.pimg-thumb .pimg-emoji { font-size: 1.65rem; }
+
+/* The detail page. */
+.pimg-hero {
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  border-radius: 14px;
+}
+.pimg-hero .pimg-emoji { font-size: 4.5rem; }
+
+/* The home strips reuse the card shape; this keeps the old margin. */
+.mini-card .pimg-card { margin-bottom: 0.35rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pimg img { animation: none; }
+}

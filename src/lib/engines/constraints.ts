@@ -101,6 +101,7 @@ export type Candidate = {
   stock: number;
   codEligible: boolean;
   attributes: Record<string, unknown>;
+  imageUrl?: string;
   imageEmoji?: string;
   accentHex?: string;
   /** The seller offering it, with the two fields the economics need. */

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { disconnectDb } from "@/lib/db/connect";
 import { runEvals } from "@/lib/eval-runner";
+import { SCENARIOS } from "@/lib/evals";
 
 let savedKey: string | undefined;
 
@@ -41,7 +42,25 @@ describe("the eval suite", () => {
 
     expect(report.errors).toBe(0);
     expect(report.failed).toBe(0);
-    // The known limitation must stay visible, not silently start passing.
-    expect(report.knownLimits).toBe(1);
+
+    // There is no KNOWN LIMIT scenario any more.
+    //
+    // Scenario 16 was the multi-issue limitation and it has been fixed rather
+    // than hidden: the claim model now holds a per-issue array, each issue is
+    // adjudicated by the same entitlement engine, and the aggregate is capped
+    // at the order value. It is asserted as an ordinary scenario above.
+    //
+    // This assertion is kept and inverted so the reporting mechanism cannot
+    // rot unnoticed: if a future scenario declares `knownLimitation`, this
+    // fails and forces a decision about whether to fix it or document it,
+    // which is the behaviour the original assertion existed to protect.
+    expect(report.knownLimits).toBe(0);
+    expect(SCENARIOS.filter((s) => s.knownLimitation)).toHaveLength(0);
+
+    // Every scenario must actually assert something. A scenario with no
+    // checks reports PASS while testing nothing at all.
+    for (const r of report.results) {
+      expect(r.checks.length, `scenario ${r.id} asserted nothing`).toBeGreaterThan(0);
+    }
   }, 600_000);
 });

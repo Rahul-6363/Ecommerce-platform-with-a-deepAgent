@@ -17,7 +17,7 @@ beforeAll(async () => {
   delete process.env.GROQ_API_KEY;
 
   await connectDb();
-  await seed();
+  await seed({ force: true });
   const u = await User.findOne({ email: "arjun@example.in" }).lean<LeanUser>();
   userId = String(u!._id);
 }, 120_000);

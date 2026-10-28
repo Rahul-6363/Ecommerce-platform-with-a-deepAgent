@@ -16,6 +16,7 @@ import { PRODUCTS, POLICIES, SELLERS, USERS, OFFERS, DEMO_PASSWORD } from "@/lib
 import { hashPassword } from "@/lib/auth/session";
 import { emit } from "@/lib/events";
 import { resetClock } from "@/lib/clock";
+import { canSeed } from "@/lib/seed-guard";
 import { nanoid } from "nanoid";
 
 export type SeedReport = {
@@ -30,8 +31,23 @@ export type SeedReport = {
   password: string;
 };
 
-export async function seed(): Promise<SeedReport> {
+/**
+ * Build the demo database, destructively.
+ *
+ * Gated by `canSeed()` unless `force` is passed: this deletes every
+ * collection, so running it against a database holding real registrations
+ * would delete those people's accounts and orders. The test suites pass
+ * `force` because they run against a throwaway in-process MongoDB.
+ */
+export async function seed(
+  opts: { force?: boolean } = {},
+): Promise<SeedReport> {
   await connectDb();
+
+  if (!opts.force) {
+    const verdict = await canSeed();
+    if (!verdict.allowed) throw new Error(verdict.reason);
+  }
 
   // Wipe, in dependency order. A seed that leaves yesterday's events behind
   // makes every projection wrong and every demo unrepeatable.
@@ -324,6 +340,73 @@ export async function seed(): Promise<SeedReport> {
     "ORD-DEMO007 — delivered 5 days late on a Rs 21,999 order: store credit capped at Rs 200",
   );
 
+  /* ── Scenario 8: in flight, complete address, one failed attempt ─────
+   *
+   * The parcel the *reversible* rescue is for, and the only in-flight order
+   * whose address is complete.
+   *
+   * Without it every rescue demo landed on ORD-DEMO001, where the missing
+   * landmark is the dominant factor — so the intervention policy always chose
+   * `ask_buyer` (gated) and the reversible `redirect_to_pickup` branch was
+   * unreachable from the seed data. That made the more interesting half of the
+   * authority story invisible: the agent acting alone, correctly, because the
+   * action is reversible and moves no money.
+   *
+   * Priya's address has a landmark and is tier 2, the parcel is prepaid, and
+   * the courier has already failed once. The only remaining lever is to stop
+   * trying the door, which is exactly the action the RiskAgent may take alone.
+   */
+  const priyaRescue = byEmail.get("priya@example.in")!;
+  const rescueItem = PRODUCTS.find((p) => p.sku === "VJ-HOME-401") ?? PRODUCTS[0];
+  const o8 = await Order.create({
+    orderNo: "ORD-DEMO008",
+    userId: priyaRescue._id,
+    items: [{
+      sku: rescueItem.sku, title: rescueItem.title, qty: 1, unitPriceInr: rescueItem.priceInr,
+      sellerId: rescueItem.sellerId, policyId: rescueItem.policyId, category: rescueItem.category,
+      brand: rescueItem.brand, boxContents: rescueItem.boxContents,
+    }],
+    amountInr: rescueItem.priceInr,
+    paymentMode: "PREPAID", paymentStatus: "PAID", status: "OUT_FOR_DELIVERY",
+    address: {
+      line: priyaRescue.addresses[0].line,
+      landmark: priyaRescue.addresses[0].landmark,
+      city: priyaRescue.addresses[0].city,
+      state: priyaRescue.addresses[0].state,
+      pincode: priyaRescue.addresses[0].pincode,
+      // Tier 3 deliberately. The intervention policy only reroutes a parcel
+      // that has actually reached MEDIUM risk, and a tier-2 prepaid parcel
+      // with one failed attempt scores LOW — correctly, since one missed
+      // doorstep is not yet a pattern. Tier 3 plus the failed attempt is the
+      // cheapest fixture that reaches the reversible branch without inventing
+      // a COD tag or a second failure that would change which action wins.
+      pinTier: 3,
+    },
+    // Far enough out that the forecast does not declare the promise already
+    // lost: the scenario is about the reversible redirect, not about a parcel
+    // that can no longer make its date.
+    placedAt: days(-4), promisedBy: days(9), deliveredAt: null,
+    buyerPriority: "money", buyerPriorRto: 0, stockAvailable: true,
+  });
+  await Shipment.create({
+    shipmentId: "SHP-DEMO008", orderId: o8._id, courier: "Delhivery",
+    awb: `AWB${Math.floor(1e11 + Math.random() * 9e11)}`,
+    dispatchedAt: days(-3), promisedBy: days(9),
+    // The one failed attempt is the whole point of this fixture.
+    attempts: 1, phoneReachable: true,
+    status: "OUT_FOR_DELIVERY",
+    scans: [
+      { at: days(-4), location: "Seller warehouse", note: "Order received by the seller", code: "PLACED" },
+      { at: days(-3), location: "Mumbai hub", note: "Parcel collected by the courier", code: "DISPATCHED" },
+      { at: days(-1), location: "Local facility", note: "Out for delivery", code: "OUT_FOR_DELIVERY" },
+      { at: days(-0.5), location: "Delivery address", note: "Buyer not available at the door", code: "ATTEMPT_FAILED" },
+    ],
+  });
+  scenarios.push(
+    "ORD-DEMO008 — in flight with a complete address and one failed attempt: " +
+      "the rescue agent redirects it to a pickup point on its own, because that is reversible",
+  );
+
   /* ── Backfill seller fulfilment counts ──────────────────────────────
    *
    * Every seller's defect rate is upheld claims over orders FULFILLED, and
@@ -370,8 +453,11 @@ export async function seed(): Promise<SeedReport> {
     products: PRODUCTS.length,
     offers: OFFERS.length,
     users: users.length,
-    orders: 7,
-    shipments: 7,
+    // Counted, not hardcoded. These were literals and drifted the moment
+    // ORD-DEMO008 was added for the rescue demo, so the setup output told
+    // whoever ran it the wrong number.
+    orders: await Order.countDocuments(),
+    shipments: await Shipment.countDocuments(),
     scenarios,
     password: DEMO_PASSWORD,
   };

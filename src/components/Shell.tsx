@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, setVoiceWanted, useGreeting, useSpeaker, voiceWanted } from "@/components/ui";
 import { narrateGreeting, type GreetingStage } from "@/lib/speech/narrate";
 
@@ -70,10 +70,17 @@ export default function Shell({
       setCount(cartCount);
       return;
     }
+    // Only when there is somebody to have a cart. The shell renders on public
+    // pages now, so firing this unconditionally meant every signed-out visit
+    // asked "what is in my cart" and logged a 401 for the answer "nothing".
+    if (!me) {
+      setCount(0);
+      return;
+    }
     api<{ count: number }>("/api/cart")
       .then((r) => setCount(r.count ?? 0))
       .catch(() => undefined);
-  }, [cartCount]);
+  }, [cartCount, me]);
 
   const signOut = useCallback(async () => {
     await api("/api/auth/logout", { json: {} }).catch(() => undefined);
@@ -127,6 +134,34 @@ export default function Shell({
     enabled: !!stage && ready,
   });
 
+  /* The account menu.
+   *
+   * Closes on an outside click and on Escape, because a menu that only closes
+   * by clicking its own trigger is a menu people leave open by accident and
+   * then click through. */
+  const [acctOpen, setAcctOpen] = useState(false);
+  const acctRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!acctOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (acctRef.current && !acctRef.current.contains(e.target as Node)) setAcctOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAcctOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [acctOpen]);
+
+  // Close it on navigation, or it survives the route change and hangs over
+  // the new page.
+  useEffect(() => { setAcctOpen(false); }, [pathname]);
+
   const toggleVoice = useCallback(() => {
     setVoice((on) => {
       const next = !on;
@@ -176,18 +211,7 @@ export default function Shell({
                     </span>
                   )}
                 </Link>
-                <span
-                  style={{
-                    fontSize: ".82rem",
-                    color: "var(--ink-faint)",
-                    paddingLeft: ".5rem",
-                    marginLeft: ".25rem",
-                    borderLeft: "1px solid var(--rule)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {me.name.split(" ")[0]}
-                </span>
+
                 <button
                   className="navlink"
                   onClick={toggleVoice}
@@ -200,14 +224,57 @@ export default function Shell({
                     {voice ? "Silence the agent" : "Let the agent speak"}
                   </span>
                 </button>
-                <button className="navlink" onClick={signOut} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                  Sign out
-                </button>
+
+                {/* The account menu.
+                  *
+                  * Replaces a bare first name beside a Sign out button, which
+                  * gave a buyer nowhere to go for their own things. Operator
+                  * links appear here only for an operator, and the desk still
+                  * enforces that on the server — this hides a link, it does
+                  * not grant anything. */}
+                <div className="acct" ref={acctRef}>
+                  <button
+                    className="acct-trigger"
+                    onClick={() => setAcctOpen((v) => !v)}
+                    aria-expanded={acctOpen}
+                    aria-haspopup="menu"
+                  >
+                    <span className="acct-avatar" aria-hidden>
+                      {me.name.trim().charAt(0).toUpperCase() || "?"}
+                    </span>
+                    <span className="acct-name">{me.name.split(" ")[0]}</span>
+                    <span className="acct-caret" aria-hidden>▾</span>
+                  </button>
+
+                  {acctOpen && (
+                    <div className="acct-menu" role="menu">
+                      <div className="acct-head">
+                        <strong>{me.name}</strong>
+                        <span>{me.role === "operator" ? "Operator" : "Buyer"}</span>
+                      </div>
+                      <Link href="/orders" role="menuitem" onClick={() => setAcctOpen(false)}>
+                        My orders
+                      </Link>
+                      <Link href="/orders#addresses" role="menuitem" onClick={() => setAcctOpen(false)}>
+                        Delivery addresses
+                      </Link>
+                      {me.role === "operator" && (
+                        <Link href="/desk" role="menuitem" onClick={() => setAcctOpen(false)}>
+                          Resolution desk
+                        </Link>
+                      )}
+                      <button role="menuitem" onClick={signOut}>Sign out</button>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
-              <Link href="/signin" className="btn btn-primary btn-sm" style={{ marginLeft: ".4rem" }}>
-                Sign in
-              </Link>
+              <>
+                <Link href="/signin" className="navlink">Sign in</Link>
+                <Link href="/register" className="btn btn-primary btn-sm" style={{ marginLeft: ".2rem" }}>
+                  Create account
+                </Link>
+              </>
             )}
           </nav>
         </div>

@@ -33,6 +33,8 @@ type SystemInfo = {
     remedyLadder?: Record<string, string[]>;
     requiredEvidence?: Record<string, string[]>;
     supportedConstraints?: readonly string[];
+    /** A caveat that must travel with the engine, e.g. a simulated integration. */
+    note?: string;
   }>;
   fallbackPlan: { id: number; title: string; tool: string; why: string; gated: boolean }[];
   evals: { id: number; name: string; kind: string; knownLimitation: string | null }[];
@@ -91,6 +93,13 @@ export default function SystemPage() {
                   </div>
                 ))}
               </dl>
+              {/* A simulated integration has to say so wherever it is described,
+                  not only in the README. */}
+              {e.note && (
+                <p style={{ fontSize: ".78rem", color: "var(--haldi-deep)", margin: ".6rem 0 0", lineHeight: 1.5 }}>
+                  {e.note}
+                </p>
+              )}
             </div>
           ))}
         </div>

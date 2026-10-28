@@ -138,6 +138,7 @@ export async function findOffers(input: FinderInput): Promise<FinderResult> {
         stock: l.stock,
         codEligible: l.cod,
         attributes: (p.attributes ?? {}) as Record<string, unknown>,
+        imageUrl: p.imageUrl,
         imageEmoji: p.imageEmoji,
         accentHex: p.accentHex,
         refundable: replaceable.get(p.policyId) !== false,
@@ -368,6 +369,12 @@ const NEED_SYNONYMS: Record<string, string[]> = {
   "body pain": ["orthopaedic", "memory foam", "support"],
   "shoulder pain": ["orthopaedic", "memory foam", "pillow"],
   "hair fall": ["hair", "shampoo", "bhringraj", "onion", "scalp"],
+  // The way people actually write it. "hair fall" was a key and
+  // "hair falling" was not, so "my hair is falling a lot" expanded to
+  // nothing and the shampoo lost the signal that positions it.
+  "hair falling": ["hair", "shampoo", "bhringraj", "onion", "scalp"],
+  "falling hair": ["hair", "shampoo", "bhringraj", "onion", "scalp"],
+  "losing hair": ["hair", "shampoo", "bhringraj", "onion", "scalp"],
   "hair loss": ["hair", "shampoo", "bhringraj", "onion"],
   dandruff: ["shampoo", "scalp", "hair"],
   "dull skin": ["face oil", "glow", "skincare", "serum", "brightening"],

@@ -90,6 +90,7 @@ export async function GET(req: Request) {
         qty: line.qty,
         unitPriceInr: p.priceInr,
         lineInr: p.priceInr * line.qty,
+        imageUrl: p.imageUrl ?? "",
         imageEmoji: p.imageEmoji,
         sellerName: seller?.name ?? p.sellerId,
         // Shown here because the cart is where an agent's choice gets

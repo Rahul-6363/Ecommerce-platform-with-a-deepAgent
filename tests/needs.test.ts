@@ -31,7 +31,7 @@ const BUYER = { pinTier: 1, priorRto: 0, paymentMode: "PREPAID" as const };
 
 beforeAll(async () => {
   await connectDb();
-  await seed();
+  await seed({ force: true });
 }, 180_000);
 
 afterAll(async () => {

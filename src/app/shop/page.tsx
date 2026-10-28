@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import AgentRail from "@/components/AgentRail";
 import Shell from "@/components/Shell";
+import ProductImage from "@/components/ProductImage";
 import { api, Empty, INR, Spinner, Toast } from "@/components/ui";
 import DestinationBlock from "@/components/DestinationBlock";
 
@@ -11,7 +12,7 @@ type Product = {
   sku: string; title: string; brand: string; category: string; subcategory: string;
   description: string; priceInr: number; mrpInr: number; discountPct: number;
   ratingAvg: number; ratingCount: number; stock: number; inStock: boolean;
-  imageEmoji: string; accentHex: string; attributes: Record<string, unknown>;
+  imageUrl?: string; imageEmoji: string; accentHex: string; attributes: Record<string, unknown>;
   boxContents: string[]; codEligible: boolean;
 };
 
@@ -27,12 +28,26 @@ const SORTS = [
   { value: "rating", label: "Best rated" },
   { value: "price_low", label: "Price: low to high" },
   { value: "price_high", label: "Price: high to low" },
+  { value: "discount", label: "Biggest discount" },
+];
+
+/** Price bands, so the commonest filter is one click rather than two fields. */
+const PRICE_BANDS = [
+  { label: "Under ₹500", min: 0, max: 500 },
+  { label: "₹500 – ₹2,000", min: 500, max: 2000 },
+  { label: "₹2,000 – ₹10,000", min: 2000, max: 10000 },
+  { label: "Over ₹10,000", min: 10000, max: 0 },
 ];
 
 export default function Shop() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
+  // Categories now arrive with a count, so the navigation can say how many
+  // are in each rather than offering one that turns out to be empty.
+  const [categories, setCategories] = useState<{ name: string; count: number }[]>([]);
+  const [total, setTotal] = useState(0);
+  const [band, setBand] = useState(-1);
+  const [inStockOnly, setInStockOnly] = useState(false);
   const [cart, setCart] = useState<Cart>({ items: [], count: 0, total_inr: 0 });
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [q, setQ] = useState("");
@@ -51,6 +66,8 @@ export default function Shop() {
   const [instructions, setInstructions] = useState("");
   const [showCart, setShowCart] = useState(true);
   const [toast, setToast] = useState<{ m: string; t: "ok" | "err" } | null>(null);
+  /** Set once /api/auth/me has answered, either way. */
+  const [identityKnown, setIdentityKnown] = useState(false);
 
   const loadCart = useCallback(async () => {
     try {
@@ -60,29 +77,59 @@ export default function Shop() {
     }
   }, []);
 
+  /* Browsing needs no account.
+   *
+   * This used to redirect a signed-out visitor straight to /signin, so the
+   * catalogue was invisible until you had registered — which is backwards:
+   * nobody creates an account to find out whether a shop stocks anything.
+   * The cart and checkout still require a session, and say so at the point
+   * they need one. */
   useEffect(() => {
     api<{ user: { name: string; role: string } | null }>("/api/auth/me")
-      .then((r) => (r.user ? setUser(r.user) : router.push("/signin")))
-      .catch(() => router.push("/signin"));
-  }, [router]);
+      .then((r) => setUser(r.user))
+      .catch(() => setUser(null))
+      .finally(() => setIdentityKnown(true));
+  }, []);
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ q, category, sort });
-    api<{ products: Product[]; categories: string[] }>(`/api/catalogue?${params}`)
+    const params = new URLSearchParams({ q, category, sort, limit: "72" });
+    if (band >= 0) {
+      const b = PRICE_BANDS[band];
+      if (b.min) params.set("minPrice", String(b.min));
+      if (b.max) params.set("maxPrice", String(b.max));
+    }
+    if (inStockOnly) params.set("inStock", "1");
+
+    api<{
+      products: Product[];
+      categories: { name: string; count: number }[];
+      total: number;
+    }>(`/api/catalogue?${params}`)
       .then((r) => {
         setProducts(r.products);
         setCategories(r.categories);
+        setTotal(r.total);
       })
       .catch(() => undefined)
       .finally(() => setLoading(false));
-  }, [q, category, sort]);
+  }, [q, category, sort, band, inStockOnly]);
 
+  /* Wait until identity is known, then only ask if there is someone to ask
+   * about. Firing this on mount meant a signed-out visitor's first page load
+   * always emitted a 401 for a question with a fine answer: an empty cart. */
   useEffect(() => {
+    if (!identityKnown || !user) return;
     loadCart();
-  }, [loadCart]);
+  }, [identityKnown, user, loadCart]);
 
   async function addToCart(sku: string) {
+    // Browsing is public, so this is a reachable state rather than an edge
+    // case. Naming the next step beats a bare "Unauthorized".
+    if (!user) {
+      setToast({ m: "Sign in or create an account to start a cart.", t: "err" });
+      return;
+    }
     try {
       await api("/api/cart", { json: { action: "add", sku, qty: 1 } });
       await loadCart();
@@ -134,7 +181,15 @@ export default function Shop() {
 
   const outOfStockInCart = useMemo(() => cart.items.some((l) => !l.in_stock), [cart.items]);
 
-  if (!user) {
+  /* Spin only while we genuinely do not know who this is.
+   *
+   * This used to be `if (!user)`, which was correct while the page redirected
+   * a signed-out visitor to /signin: `user` was null only for the instant
+   * before the redirect. Once browsing was made public, null became a
+   * permanent and perfectly valid state — a guest — so the page spun forever
+   * on "Loading your catalogue" and never rendered. The question is whether
+   * identity has been RESOLVED, not whether somebody is signed in. */
+  if (!identityKnown) {
     return (
       <main style={{ display: "grid", placeItems: "center", minHeight: "100dvh" }}>
         <Spinner label="Loading your catalogue" />
@@ -164,9 +219,11 @@ export default function Shop() {
                 onChange={(e) => setCategory(e.target.value)}
                 aria-label="Filter by category"
               >
-                <option value="all">All categories</option>
+                <option value="all">All categories ({total})</option>
                 {categories.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c.name} value={c.name}>
+                    {c.name} ({c.count})
+                  </option>
                 ))}
               </select>
               <select
@@ -180,6 +237,47 @@ export default function Shop() {
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Price bands and availability as chips.
+              *
+              * Two fields for a price range is two decisions a buyer has to
+              * make before seeing anything; a band is one click. Availability
+              * is a real filter rather than a badge, because an out-of-stock
+              * product that looks purchasable is the commonest way a
+              * storefront wastes somebody's time. */}
+            <div className="filter-row">
+              {PRICE_BANDS.map((b, i) => (
+                <button
+                  key={b.label}
+                  type="button"
+                  className={`filter-chip ${band === i ? "on" : ""}`}
+                  aria-pressed={band === i}
+                  onClick={() => setBand(band === i ? -1 : i)}
+                >
+                  {b.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`filter-chip ${inStockOnly ? "on" : ""}`}
+                aria-pressed={inStockOnly}
+                onClick={() => setInStockOnly((v) => !v)}
+              >
+                In stock only
+              </button>
+              {(band >= 0 || inStockOnly || category !== "all" || q) && (
+                <button
+                  type="button"
+                  className="filter-chip clear"
+                  onClick={() => { setBand(-1); setInStockOnly(false); setCategory("all"); setQ(""); }}
+                >
+                  Clear all
+                </button>
+              )}
+              <span className="filter-count">
+                {loading ? "searching…" : `${products.length} of ${total} shown`}
+              </span>
             </div>
 
             {/* The cart sits above the grid so an item the agent adds is seen
@@ -333,13 +431,13 @@ export default function Shop() {
                 <div className="grid-products stagger">
                   {products.map((p) => (
                     <article key={p.sku} className="tile">
-                      <div
-                        className="tile-field"
-                        style={{ background: `linear-gradient(140deg, ${p.accentHex}26, ${p.accentHex}0f)` }}
-                        aria-hidden
-                      >
-                        {p.imageEmoji}
-                      </div>
+                      <ProductImage
+                        src={p.imageUrl}
+                        emoji={p.imageEmoji}
+                        alt={p.title}
+                        accent={p.accentHex}
+                        size="card"
+                      />
 
                       <div className="tile-brand">{p.brand}</div>
                       <h3 className="tile-title">{p.title}</h3>

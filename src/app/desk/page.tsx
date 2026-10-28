@@ -10,6 +10,7 @@ import {
 } from "@/components/ui";
 import PlanTrace, { type PlanShape } from "@/components/PlanTrace";
 import EvalPanel from "@/components/EvalPanel";
+import RescuePanel from "@/components/RescuePanel";
 
 type Signal = { factor: string; points: number; detail: string };
 
@@ -24,6 +25,27 @@ type Claim = {
     eligible: boolean; remedy: string; amountInr: number; deadlineAt: string | null;
     clauseIds: string[]; reasons: string[]; confidence: number; alternatives: string[];
   };
+  /**
+   * Per-issue rows. Empty on a single-issue claim, which is every claim
+   * written before the claim model gained this array — so the UI treats an
+   * empty list as "nothing extra to show" rather than as an error.
+   */
+  issues: {
+    key: string;
+    issueType: string;
+    excerpt: string;
+    status: string;
+    payableInr: number;
+    engineAmountInr: number;
+    remedy: string;
+    clauseIds: string[];
+    adjustments: string[];
+    subsumedBy: string;
+    resolution: { decision: string | null; approvedInr: number; note: string } | null;
+  }[];
+  multiIssue: boolean;
+  totalPayableInr: number;
+  uncappedTotalInr: number;
   authenticity: { verdict: string; score: number; signals: Signal[]; narrative: string; reviewRequired: boolean };
   draftMessage: string; draftVerified: boolean; verifierNotes: string[];
   plan: PlanShape;
@@ -83,7 +105,7 @@ type RefundRow = {
   overdue: boolean;
 };
 
-type Tab = "queue" | "orders" | "refunds" | "sellers" | "outbox" | "mandate" | "evals";
+type Tab = "queue" | "rescue" | "orders" | "refunds" | "sellers" | "outbox" | "mandate" | "evals";
 
 export default function DeskPage() {
   const router = useRouter();
@@ -153,6 +175,9 @@ export default function DeskPage() {
       <nav style={{ display: "flex", gap: ".4rem", margin: "1.25rem 0", flexWrap: "wrap" }}>
         {([
           ["queue", `Approval queue (${queue.length})`],
+          // Next to the queue on purpose: this is the lane that tries to stop
+          // anything reaching the queue in the first place.
+          ["rescue", "Order rescue"],
           ["orders", `Parcels (${data.orders.length})`],
           ["refunds", `Refunds (${data.refunds.filter((r) => r.overdue).length ? `${data.refunds.filter((r) => r.overdue).length} overdue` : data.refunds.length})`],
           ["sellers", `Sellers (${data.sellers.filter((x) => x.action !== "NONE").length} flagged)`],
@@ -206,6 +231,7 @@ export default function DeskPage() {
         </>
       )}
 
+      {tab === "rescue" && <RescuePanel />}
       {tab === "orders" && <Parcels orders={data.orders} busy={busy} act={act} />}
       {tab === "refunds" && <Refunds refunds={data.refunds} />}
       {tab === "sellers" && <Sellers sellers={data.sellers} />}
@@ -243,6 +269,18 @@ function CaseCard({
 }) {
   const [note, setNote] = useState("");
   const [overrideAmount, setOverrideAmount] = useState<string>("");
+  /**
+   * Which issues the operator is approving.
+   *
+   * Defaults to every issue the engine found payable or eligible, so the
+   * common case is one click and the per-issue control is only touched when
+   * the operator actually disagrees about one of them.
+   */
+  const [issueApproved, setIssueApproved] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      (claim.issues ?? []).map((i) => [i.key, i.status === "ELIGIBLE" || i.status === "CAPPED"]),
+    ),
+  );
   const v = claim.verdict;
   const a = claim.authenticity;
   const suspicious = a.verdict === "LIKELY_FABRICATED";
@@ -412,6 +450,89 @@ function CaseCard({
           )}
         </div>
 
+        {/* ── Per-issue adjudication ──────────────────────────────────
+          *
+          * Only shown when the complaint carried more than one issue.
+          * Approving a two-issue claim as a single unit forces the operator to
+          * be wrong about one of them: a genuine dead unit alongside a
+          * missing-accessory claim they do not believe used to mean paying
+          * both or rejecting both.
+          */}
+        {claim.issues?.length > 1 && (
+          <div style={{ marginTop: ".9rem", borderTop: "1px solid var(--rule)", paddingTop: ".8rem" }}>
+            <h4 style={{ fontSize: ".8rem", textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ink-faint)", margin: "0 0 .5rem" }}>
+              {claim.issues.length} issues read from one complaint
+              {claim.uncappedTotalInr > claim.totalPayableInr && (
+                <> · capped from {INR(claim.uncappedTotalInr)} to {INR(claim.totalPayableInr)}</>
+              )}
+            </h4>
+
+            <div style={{ display: "grid", gap: ".45rem" }}>
+              {claim.issues.map((i) => {
+                const decidable = i.status === "ELIGIBLE" || i.status === "CAPPED";
+                return (
+                  <div
+                    key={i.key}
+                    style={{
+                      display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap",
+                      fontSize: ".85rem", padding: ".45rem .6rem",
+                      background: "var(--paper-2, rgba(0,0,0,.02))", borderRadius: "6px",
+                      opacity: decidable ? 1 : 0.72,
+                    }}
+                  >
+                    {decidable && !claim.approval.decision ? (
+                      <label style={{ display: "flex", gap: ".35rem", alignItems: "center", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={issueApproved[i.key] ?? true}
+                          onChange={(e) =>
+                            setIssueApproved((prev) => ({ ...prev, [i.key]: e.target.checked }))
+                          }
+                          aria-label={`Approve the ${humanise(i.issueType)} issue`}
+                        />
+                        <strong>{humanise(i.issueType)}</strong>
+                      </label>
+                    ) : (
+                      <strong>{humanise(i.issueType)}</strong>
+                    )}
+
+                    <Chip tone={i.status === "ELIGIBLE" ? "indigo" : i.status === "NEEDS_REVIEW" ? "gold" : "neutral"}>
+                      {humanise(i.status)}
+                    </Chip>
+
+                    <span style={{ color: "var(--ink-soft)" }}>
+                      {humanise(i.remedy)}
+                      {i.payableInr > 0 && ` ${INR(i.payableInr)}`}
+                      {i.payableInr !== i.engineAmountInr && i.engineAmountInr > 0 && (
+                        <> (engine said {INR(i.engineAmountInr)})</>
+                      )}
+                    </span>
+
+                    {i.clauseIds.length > 0 && (
+                      <span className="mono" style={{ fontSize: ".74rem", color: "var(--ink-faint)" }}>
+                        {i.clauseIds.join(", ")}
+                      </span>
+                    )}
+
+                    {i.resolution?.decision && (
+                      <Chip tone={i.resolution.decision === "APPROVED" ? "moss" : "brick"}>
+                        {humanise(i.resolution.decision)}
+                      </Chip>
+                    )}
+
+                    {/* Why this issue pays less than the engine allowed it. */}
+                    {i.adjustments.length > 0 && (
+                      <span style={{ width: "100%", fontSize: ".78rem", color: "var(--ink-faint)" }}>
+                        {i.adjustments.join(" · ")}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: ".5rem", marginTop: ".6rem", flexWrap: "wrap" }}>
           <button
             className="btn btn-approve"
@@ -424,6 +545,14 @@ function CaseCard({
                     json: {
                       claimNo: claim.claimNo, approve: true, note: note || undefined,
                       overrideAmountInr: overrideAmount ? Number(overrideAmount) : undefined,
+                      // Only sent for a genuinely multi-issue claim, so a
+                      // single-issue approval posts exactly the body it always did.
+                      issueDecisions:
+                        claim.issues?.length > 1
+                          ? Object.fromEntries(
+                              claim.issues.map((i) => [i.key, { approve: issueApproved[i.key] ?? true }]),
+                            )
+                          : undefined,
                     },
                   },
                 );

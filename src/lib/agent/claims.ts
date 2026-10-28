@@ -20,6 +20,11 @@ import type { LeanEvidence, LeanOrder, LeanPolicy, LeanShipment, LeanUser } from
 import { checkEntitlement } from "@/lib/engines/entitlement";
 import { assessAuthenticity } from "@/lib/engines/authenticity";
 import { triage, type TriageResult } from "@/lib/agent/triage";
+import { splitIssues } from "@/lib/agent/issue-splitter";
+import {
+  adjudicateIssues, headlineVerdict,
+  type IssueInput, type MultiIssueVerdict,
+} from "@/lib/engines/multi-issue";
 import { verifyDraft, templateDraft } from "@/lib/agent/verifier";
 import { chat, seeImage, transcribe, type VisionFindings } from "@/lib/groq/client";
 import {
@@ -62,6 +67,13 @@ export type ClaimOutcome = {
   /** The route the agent planned, and how it actually went. */
   plan: { goal: string; source: string; steps: PlanStep[] };
   budget: { stepsUsed: number; replansUsed: number; exhausted: boolean };
+  /**
+   * Per-issue adjudication.
+   *
+   * Always present, with one row for a single-issue complaint, so a caller
+   * never has to branch on whether a claim happened to carry two problems.
+   */
+  multi: MultiIssueVerdict;
 };
 
 /** The tools the planner may use on a claim. */
@@ -349,6 +361,35 @@ export async function openClaim(input: {
     });
   }
 
+  /* ── 2b. How many distinct problems is this, actually? ───────────── */
+
+  // Triage already returned a `secondaryIssue`, so the system knew a complaint
+  // could carry two problems and remedied one of them. This splits the prose
+  // into separately remediable issues; `adjudicateIssues` then calls the SAME
+  // entitlement engine once per issue and caps the aggregate. The model splits
+  // and names; it decides no eligibility, no remedy and no amount.
+  const split = await splitIssues(complaintText, t);
+  if (split.degraded) degraded = true;
+
+  if (split.issues.length > 1) {
+    await emit({
+      type: "claim.issues_split",
+      actor: "TriageAgent",
+      summary:
+        `${split.issues.length} distinct issues read from one complaint: ` +
+        split.issues.map((i) => i.issueType).join(" + ") +
+        (split.degraded ? " — keyword path, model unavailable" : ""),
+      payload: {
+        issues: split.issues.map((i) => ({
+          key: i.key, issueType: i.issueType, excerpt: i.excerpt, confidence: i.confidence,
+        })),
+        reasoning: split.reasoning,
+        degraded: split.degraded,
+      },
+      claimId: claim._id, orderId: order._id, userId: input.userId,
+    });
+  }
+
   /* ── 3. Plan, before gathering anything ──────────────────────────── */
 
   // The plan is written first and stored, so the operator sees the route the
@@ -535,26 +576,107 @@ export async function openClaim(input: {
 
   /* ── 7. Adjudicate. The engine decides, not the model. ──────────── */
 
-  const verdict = checkEntitlement(
+  const entitlementOrder = {
+    amountInr: order.amountInr,
+    deliveredAt: order.deliveredAt,
+    promisedBy: order.promisedBy,
+    stockAvailable: order.stockAvailable,
+    // The complaint wins only when it voiced a preference; otherwise the
+    // buyer's stored profile stands.
+    buyerPriority: (t.buyerPriority ?? order.buyerPriority ?? "money") as "speed" | "money",
+  };
+  const entitlementPolicy = {
+    returnWindowDays: policy.returnWindowDays,
+    replacementAllowed: policy.replacementAllowed,
+    refundSlaDays: policy.refundSlaDays,
+    lateCompensation: policy.lateCompensation,
+    clauses: policy.clauses as { id: string; text: string; tags: string[] }[],
+  };
+
+  // Complaint-level evidence bears on every issue: a photograph, or a courier
+  // record that corroborates the story, is not attributable to one of two
+  // problems. Per-issue flags from the splitter are kept and these are added.
+  const issueInputs: IssueInput[] = split.issues.map((i) => ({
+    ...i,
+    evidenceFlags: { ...flags, ...i.evidenceFlags },
+    evidenceFilenames: images.map((img) => img.filename),
+  }));
+
+  // One `checkEntitlement` call per issue, then the cross-issue rules: no
+  // double payment, and the aggregate capped at the order value. Pure, and it
+  // can only ever reduce a payout — never invent or raise one.
+  const multi = adjudicateIssues(entitlementOrder, entitlementPolicy, issueInputs, nowAt);
+
+  // The single headline verdict the rest of the platform already understands:
+  // the primary issue's verdict with the capped aggregate substituted. Every
+  // number in it came out of the entitlement engine.
+  const verdict = headlineVerdict(multi);
+
+  if (multi.issues.length > 1) {
+    await emit({
+      type: "claim.issues_adjudicated",
+      // The engine, not the splitter. This event records money.
+      actor: "EntitlementEngine",
+      summary:
+        `${multi.issues.length} issues adjudicated separately: ` +
+        multi.issues
+          .map(
+            (i) =>
+              `${i.issueType} ${i.status.toLowerCase().replace(/_/g, " ")}` +
+              (i.payableInr > 0 ? ` ₹${i.payableInr}` : ""),
+          )
+          .join(" · ") +
+        ` — total ₹${multi.totalPayableInr} against a ₹${multi.capInr} cap`,
+      payload: {
+        issues: multi.issues.map((i) => ({
+          key: i.key,
+          issueType: i.issueType,
+          status: i.status,
+          payableInr: i.payableInr,
+          engineAmountInr: i.verdict.amountInr,
+          remedy: i.verdict.remedy,
+          clauseIds: i.verdict.clauseIds,
+          adjustments: i.adjustments,
+          subsumedBy: i.subsumedBy ?? "",
+        })),
+        totalPayableInr: multi.totalPayableInr,
+        uncappedTotalInr: multi.uncappedTotalInr,
+        capInr: multi.capInr,
+        capApplied: multi.capApplied,
+        reasons: multi.reasons,
+      },
+      claimId: claim._id, orderId: order._id, userId: input.userId,
+    });
+  }
+
+  // Persist the per-issue rows. Additive: `issueType` and `verdict` below are
+  // still written exactly as before, so a reader that knows nothing about
+  // `issues` behaves identically.
+  await Claim.updateOne(
+    { _id: claim._id },
     {
-      amountInr: order.amountInr,
-      deliveredAt: order.deliveredAt,
-      promisedBy: order.promisedBy,
-      stockAvailable: order.stockAvailable,
-      // The complaint wins only when it voiced a preference; otherwise the
-      // buyer's stored profile stands.
-      buyerPriority: (t.buyerPriority ?? order.buyerPriority ?? "money") as "speed" | "money",
+      $set: {
+        issues: multi.issues.map((i) => ({
+          key: i.key,
+          issueType: i.issueType,
+          excerpt: i.excerpt,
+          confidence: i.confidence,
+          evidenceFlags: i.evidenceFlags,
+          evidenceFilenames: i.evidenceFilenames ?? [],
+          status: i.status,
+          payableInr: i.payableInr,
+          adjustments: i.adjustments,
+          subsumedBy: i.subsumedBy ?? "",
+          verdict: {
+            ...i.verdict,
+            deadlineAt: i.verdict.deadlineAt ? new Date(i.verdict.deadlineAt) : null,
+          },
+        })),
+        multiIssue: multi.issues.filter((i) => i.status !== "SUBSUMED").length > 1,
+        totalPayableInr: multi.totalPayableInr,
+        uncappedTotalInr: multi.uncappedTotalInr,
+      },
     },
-    {
-      returnWindowDays: policy.returnWindowDays,
-      replacementAllowed: policy.replacementAllowed,
-      refundSlaDays: policy.refundSlaDays,
-      lateCompensation: policy.lateCompensation,
-      clauses: policy.clauses as { id: string; text: string; tags: string[] }[],
-    },
-    t.issueType,
-    flags,
-    nowAt,
   );
 
   await emit({
@@ -603,14 +725,24 @@ export async function openClaim(input: {
     verdict.remedy === "ESCALATE_AMBIGUOUS" ||
     flags.conflicting_evidence === true ||
     authenticity.verdict === "LIKELY_FABRICATED" ||
+    // Any single issue the engine could not decide safely stops the whole
+    // claim at a person. Approving the rest and silently dropping that one is
+    // exactly the failure the multi-issue work exists to prevent.
+    multi.reviewRequired ||
     // A run that spent its step or replan budget has stopped making progress.
     // Handing it to a person is the designed outcome, not an error path.
     execution.budgetExhausted;
 
   const state = needsHuman ? "HUMAN_HANDOFF" : "AWAITING_APPROVAL";
 
+  const payingIssues = multi.issues.filter((i) => i.payableInr > 0);
+  const distinctIssues = multi.issues.filter((i) => i.status !== "SUBSUMED");
+
   const requestedAction = verdict.eligible
-    ? `${verdict.remedy.replace(/_/g, " ").toLowerCase()}${verdict.amountInr > 0 ? ` of ₹${verdict.amountInr}` : ""} to ${buyer.name}`
+    ? `${verdict.remedy.replace(/_/g, " ").toLowerCase()}${verdict.amountInr > 0 ? ` of ₹${verdict.amountInr}` : ""} to ${buyer.name}` +
+      (distinctIssues.length > 1
+        ? ` across ${distinctIssues.length} issues (${payingIssues.length} paying)`
+        : "")
     : `decline the claim and send the explanation to ${buyer.name}`;
 
   // TRIAGED -> ADJUDICATED -> (AWAITING_APPROVAL | HUMAN_HANDOFF). The engine
@@ -652,6 +784,13 @@ export async function openClaim(input: {
         execution.budgetExhausted
           ? `Routed to a human: the run spent its budget (${execution.stepsUsed} steps, ` +
             `${execution.replansUsed} replans) without reaching a decision`
+          : multi.reviewRequired
+            ? `Routed to a human: ` +
+              multi.issues
+                .filter((i) => i.status === "NEEDS_REVIEW")
+                .map((i) => i.issueType)
+                .join(", ") +
+              ` could not be decided on the evidence available`
           : verdict.remedy === "ESCALATE_AMBIGUOUS"
             ? `Routed to a human: engine confidence ${verdict.confidence} is below the acting threshold`
             : flags.conflicting_evidence
@@ -724,6 +863,7 @@ export async function openClaim(input: {
       replansUsed: execution.replansUsed,
       exhausted: execution.budgetExhausted,
     },
+    multi,
   };
 }
 

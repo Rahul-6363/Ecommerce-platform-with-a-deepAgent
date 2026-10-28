@@ -7,7 +7,7 @@ import type { LeanUser } from "@/models";
 
 let userId: string;
 beforeAll(async () => {
-  await connectDb(); await seed();
+  await connectDb(); await seed({ force: true });
   const u = await User.findOne({ email: "arjun@example.in" }).lean<LeanUser>();
   userId = String(u!._id);
 }, 180_000);

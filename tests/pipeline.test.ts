@@ -33,7 +33,7 @@ beforeAll(async () => {
   delete process.env.GROQ_API_KEY;
 
   await connectDb();
-  await seed();
+  await seed({ force: true });
   const buyer = await User.findOne({ email: "arjun@example.in" }).lean<LeanUser>();
   const op = await User.findOne({ role: "operator" }).lean<LeanUser>();
   buyerId = String(buyer!._id);
@@ -48,8 +48,8 @@ afterAll(async () => {
 describe("seed", () => {
   it("builds a catalogue, policies and the demo scenarios", async () => {
     expect(await Product.countDocuments()).toBeGreaterThan(10);
-    expect(await Order.countDocuments()).toBe(7);
-    expect(await Shipment.countDocuments()).toBe(7);
+    expect(await Order.countDocuments()).toBe(8);
+    expect(await Shipment.countDocuments()).toBe(8);
     expect(await User.countDocuments()).toBe(5);
   });
 

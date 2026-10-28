@@ -10,6 +10,23 @@ const Body = z.object({
   note: z.string().max(1000).optional(),
   overrideRemedy: z.enum(REMEDIES as unknown as [string, ...string[]]).optional(),
   overrideAmountInr: z.number().int().min(0).optional(),
+  /**
+   * Per-issue decisions on a multi-issue claim, keyed by the issue key.
+   *
+   * Optional, so every existing single-decision caller is unaffected. An
+   * issue left out follows the claim-level `approve`. The amount is re-capped
+   * against the order value in `decideClaim` rather than trusted from here.
+   */
+  issueDecisions: z
+    .record(
+      z.string().min(1).max(64),
+      z.object({
+        approve: z.boolean(),
+        note: z.string().max(1000).optional(),
+        amountInr: z.number().int().min(0).optional(),
+      }),
+    )
+    .optional(),
 });
 
 /**
@@ -27,6 +44,7 @@ export async function POST(req: Request) {
       note: b.note,
       overrideRemedy: b.overrideRemedy,
       overrideAmountInr: b.overrideAmountInr,
+      issueDecisions: b.issueDecisions,
     });
   });
 }

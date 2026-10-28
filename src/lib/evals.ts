@@ -39,12 +39,35 @@ export type Expect = {
   reviewRequired?: boolean;
   /** Known-limitation scenarios. */
   issuesDetected?: number;
+
+  /* ── Multi-issue scenarios ──────────────────────────────────────── */
+  /** How many distinct issues must be separately adjudicated. */
+  issuesAdjudicated?: number;
+  /** How many of them must carry a cash remedy. */
+  issuesPaying?: number;
+  /** The aggregate must not exceed the order value. Always checked when set. */
+  aggregateWithinOrderValue?: boolean;
+  /** Each named issue type must appear among the adjudicated issues. */
+  issueTypes?: string[];
+  /** At least one issue must be marked subsumed rather than paid twice. */
+  expectSubsumed?: boolean;
+
+  /* ── Rescue scenarios ───────────────────────────────────────────── */
+  rescueDecision?: "INTERVENE" | "NO_ACTION" | "HANDOFF";
+  /** A trigger that must have fired. */
+  rescueTrigger?: string;
+  /** The action proposed, or null to assert it declined to act. */
+  rescueAction?: string | null;
+  /** True when the proposed action must stop at the approval gate. */
+  rescueNeedsApproval?: boolean;
+  /** The rescue must not have executed anything itself. */
+  rescueExecuted?: boolean;
 };
 
 export type Scenario = {
   id: number;
   name: string;
-  kind: "case" | "risk" | "autonomy" | "chaos" | "authenticity";
+  kind: "case" | "risk" | "autonomy" | "chaos" | "authenticity" | "rescue";
   /** Which seeded order to run against. */
   orderNo?: string;
   buyerEmail?: string;
@@ -57,6 +80,20 @@ export type Scenario = {
   /** Make a named tool fail, to force a replan. */
   breakTool?: string;
   knownLimitation?: string;
+  /**
+   * Rescue scenarios: the order to assess, and the shipment state to put it
+   * in first. Set explicitly rather than relying on seed drift, because an
+   * eval whose result depends on what a previous scenario did is not a
+   * regression test.
+   */
+  rescue?: {
+    attempts?: number;
+    phoneReachable?: boolean;
+    /** Interventions already attempted, to exercise the retry limit. */
+    attemptsMade?: number;
+    /** Actions already taken, to exercise idempotency. */
+    actionsTaken?: string[];
+  };
   expect: Expect;
 };
 
@@ -260,18 +297,152 @@ export const SCENARIOS: Scenario[] = [
   /* ── A limitation we report rather than hide ─────────────────────── */
   {
     id: 16,
-    name: "KNOWN LIMIT: two distinct issues in one complaint",
+    name: "Two distinct issues in one complaint, each separately adjudicated",
     kind: "case",
     orderNo: "ORD-DEMO002",
     buyerEmail: "arjun@example.in",
     complaint: "The earbuds are dead and the charging case is also missing from the box.",
-    knownLimitation:
-      "Triage returns a single issueType. A complaint carrying two distinct issues " +
-      "is classified as the stronger one only, so the missing accessory is not " +
-      "separately remedied. The secondary issue is recorded, but the remedy covers " +
-      "one of them. Fixing this properly needs multi-issue case splitting, which " +
-      "would change the claim model, so it is reported rather than papered over.",
-    expect: { issuesDetected: 2 },
+    // This was reported as a KNOWN LIMIT until the claim model gained a per-issue
+    // array. It is now a real scenario: both issues are adjudicated by the same
+    // entitlement engine, and the aggregate is capped at the order value.
+    expect: {
+      issuesDetected: 2,
+      issuesAdjudicated: 2,
+      issueTypes: ["DOA", "MISSING_PART"],
+      aggregateWithinOrderValue: true,
+      // Deliberately no `state` assertion. By the time this scenario runs the
+      // buyer has a claim history from the earlier ones, so the authenticity
+      // engine may legitimately route it to a person — and a multi-issue claim
+      // must stop at a human just as readily as a single-issue one. Asserting
+      // AWAITING_APPROVAL here would make the scenario depend on how many
+      // claims ran before it, which is what reseeding exists to avoid.
+    },
+  },
+
+  /* ── Multi-issue: the cross-issue rules ─────────────────────────── */
+  {
+    id: 18,
+    name: "One fault described twice is one remedy, not two",
+    kind: "case",
+    orderNo: "ORD-DEMO002",
+    buyerEmail: "arjun@example.in",
+    // DAMAGED and DOA on the same unit: one broken item, described two ways.
+    //
+    // The splitter is instructed not to split this, and the dedupe rule in
+    // `adjudicateIssues` catches it if the splitter does. Either way the
+    // outcome is one remedy — which is the claim worth asserting. Requiring a
+    // SUBSUMED row would assert *which* of the two guards fired, and the
+    // better outcome is the splitter never producing the duplicate at all.
+    complaint: "The earbuds arrived smashed and now they will not switch on at all.",
+    expect: {
+      issuesAdjudicated: 1,
+      issuesPaying: 0,
+      aggregateWithinOrderValue: true,
+    },
+  },
+  {
+    id: 19,
+    name: "Three issues on one order cannot sum past the order value",
+    kind: "case",
+    orderNo: "ORD-DEMO002",
+    buyerEmail: "arjun@example.in",
+    complaint:
+      "The earbuds are dead, the charging case is missing, and it arrived after the promised date.",
+    expect: {
+      aggregateWithinOrderValue: true,
+      // Whatever the split finds, the money invariant is the assertion.
+      issuesDetected: 2,
+    },
+  },
+
+  /* ── Rescue: acting, and declining to act ───────────────────────── */
+  {
+    id: 20,
+    name: "Rescue: a COD tier-3 parcel with no landmark is intervened on",
+    kind: "rescue",
+    orderNo: "ORD-DEMO001",
+    rescue: { attempts: 0, phoneReachable: true },
+    expect: {
+      rescueDecision: "INTERVENE",
+      rescueTrigger: "INCOMPLETE_DETAILS",
+      // The fix is to ask the buyer, which the RiskAgent may not do alone.
+      rescueNeedsApproval: true,
+      rescueExecuted: false,
+    },
+  },
+  {
+    id: 21,
+    name: "Rescue: a clean metro parcel is left alone, and that is reported",
+    kind: "rescue",
+    orderNo: "ORD-DEMO006",
+    rescue: { attempts: 0, phoneReachable: true },
+    expect: {
+      rescueDecision: "NO_ACTION",
+      rescueAction: null,
+      rescueExecuted: false,
+    },
+  },
+  {
+    id: 22,
+    name: "Rescue: a failed attempt on a parcel whose address is the real problem",
+    kind: "rescue",
+    orderNo: "ORD-DEMO001",
+    rescue: { attempts: 1, phoneReachable: true },
+    expect: {
+      rescueDecision: "INTERVENE",
+      rescueTrigger: "REPEATED_FAILURE",
+      // The intervention policy fixes the address gap before it reroutes the
+      // parcel, and it is right to: redirecting to a pickup point leaves the
+      // missing landmark in place for every future order to this address.
+      // So the proposal is ask_buyer, which is gated.
+      rescueAction: "ask_buyer",
+      rescueNeedsApproval: true,
+      rescueExecuted: false,
+    },
+  },
+  {
+    id: 25,
+    name: "Rescue: a reversible redirect runs without approval once the address is fine",
+    kind: "rescue",
+    // ORD-DEMO008 is the only in-flight order with a complete address, so the
+    // address branch does not fire and a failed attempt reaches the reversible
+    // pickup redirect. It exists in the seed for exactly this.
+    orderNo: "ORD-DEMO008",
+    rescue: { attempts: 1, phoneReachable: true },
+    expect: {
+      rescueDecision: "INTERVENE",
+      rescueTrigger: "REPEATED_FAILURE",
+      rescueAction: "redirect_to_pickup",
+      // Reversible, so this one the agent genuinely may do alone — and does.
+      rescueNeedsApproval: false,
+      rescueExecuted: true,
+    },
+  },
+  {
+    id: 23,
+    name: "Rescue: the attempt budget is spent, so a person decides",
+    kind: "rescue",
+    orderNo: "ORD-DEMO001",
+    rescue: { attempts: 1, phoneReachable: false, attemptsMade: 3 },
+    expect: {
+      rescueDecision: "HANDOFF",
+      rescueAction: null,
+      rescueExecuted: false,
+    },
+  },
+  {
+    id: 24,
+    name: "Rescue: an action already taken is not repeated",
+    kind: "rescue",
+    orderNo: "ORD-DEMO001",
+    // The action the policy would pick for this order is ask_buyer, so that is
+    // the one to pre-record. Pre-recording a different action would prove
+    // nothing about idempotency.
+    rescue: { attempts: 1, phoneReachable: true, actionsTaken: ["ask_buyer"] },
+    expect: {
+      rescueDecision: "NO_ACTION",
+      rescueExecuted: false,
+    },
   },
 ];
 

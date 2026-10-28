@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Shell from "@/components/Shell";
+import ProductImage from "@/components/ProductImage";
 import { capabilities } from "@/lib/env";
 
 /**
@@ -10,8 +11,18 @@ import { capabilities } from "@/lib/env";
  * becoming a cited policy decision — because that exchange *is* the product,
  * and showing it beats describing it.
  */
-export default function Home() {
+export default async function Home() {
   const caps = capabilities();
+
+  /* The catalogue, read on the server.
+   *
+   * The front door used to describe the product and never show it, so a
+   * visitor had to take "there is a catalogue" on trust and click through to
+   * find out. These are real rows: if the database is unseeded the sections
+   * render empty rather than inventing placeholder products, because a
+   * storefront showing fake stock is the one thing this project does not do.
+   */
+  const { categories, featured, deals, total } = await storefront();
 
   return (
     <Shell>
@@ -92,6 +103,77 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ── The catalogue, which is what people came for ─────────────── */}
+      {total > 0 && (
+        <section className="home-shop">
+          <div className="home-shop-in">
+            <div className="home-shop-head">
+              <div>
+                <h2>Shop by category</h2>
+                <p>
+                  {total} products across {categories.length} categories. Every
+                  price, seller and parcel here is fictional demonstration data.
+                </p>
+              </div>
+              <Link href="/shop" className="btn btn-ghost btn-sm">
+                Browse all {total}
+              </Link>
+            </div>
+
+            <div className="cat-grid">
+              {categories.map((c) => (
+                <Link
+                  key={c.name}
+                  href={`/shop?category=${encodeURIComponent(c.name)}`}
+                  className="cat-tile"
+                >
+                  <span className="cat-emoji" aria-hidden>{c.emoji}</span>
+                  <span className="cat-name">{c.name}</span>
+                  <span className="cat-count">{c.count} items</span>
+                </Link>
+              ))}
+            </div>
+
+            {/* Two strips rather than one long grid: "most reviewed" and
+                "biggest discount" answer different questions, and a single
+                undifferentiated row of twelve answers neither. */}
+            <div className="strip-head">
+              <h3>Most reviewed</h3>
+              <Link href="/shop?sort=popular">See more</Link>
+            </div>
+            <div className="prod-strip">
+              {featured.map((p) => <MiniCard key={p.sku} p={p} />)}
+            </div>
+
+            {deals.length > 0 && (
+              <>
+                <div className="strip-head">
+                  <h3>Biggest discounts</h3>
+                  <Link href="/shop?sort=discount">See more</Link>
+                </div>
+                <div className="prod-strip">
+                  {deals.map((p) => <MiniCard key={p.sku} p={p} />)}
+                </div>
+              </>
+            )}
+
+            {/* The discovery path, offered where someone is already failing to
+                find a product by browsing — which is when it is useful. */}
+            <div className="home-find">
+              <div>
+                <strong>Cannot find the name of what you want?</strong>
+                <p>
+                  Describe the problem instead — &ldquo;a gift for my mother who
+                  has back pain&rdquo; — and the constraint solver returns what
+                  qualifies, and why everything else did not.
+                </p>
+              </div>
+              <Link href="/find" className="btn btn-accent btn-sm">State a need</Link>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── What it actually does ────────────────────────────────────── */}
       <section style={{ maxWidth: "76rem", margin: "0 auto", padding: "clamp(2.5rem,5vw,4rem) 1.25rem" }}>
@@ -215,5 +297,135 @@ function CapRow({ name, status, detail }: { name: string; status: string; detail
         <div style={{ fontSize: ".76rem", color: "var(--ink-faint)" }}>{detail}</div>
       </div>
     </div>
+  );
+}
+
+
+/* ─────────────────────── Storefront data ─────────────────────────────── */
+
+type Mini = {
+  sku: string; title: string; brand: string; priceInr: number; mrpInr: number;
+  discountPct: number; ratingAvg: number; ratingCount: number;
+  imageUrl: string; imageEmoji: string; accentHex: string; inStock: boolean;
+};
+
+/** One emoji per category, for the tiles. Keyed by the canonical name. */
+const CATEGORY_EMOJI: Record<string, string> = {
+  electronics: "\u{1F50C}",
+  computers: "\u{1F5A5}\u{FE0F}",
+  kitchen: "\u{1F373}",
+  home: "\u{1F6CB}\u{FE0F}",
+  apparel: "\u{1F455}",
+  footwear: "\u{1F45E}",
+  beauty: "\u{1F9F4}",
+  sports: "\u{1F3CB}\u{FE0F}",
+  books: "\u{1F4DA}",
+  hardware: "\u{1F9F0}",
+};
+
+/**
+ * Read the storefront straight from the database.
+ *
+ * Not through `/api/catalogue`: this is a server component, so a fetch to our
+ * own route would be a needless round trip through the HTTP layer. The
+ * projection is the same one the API returns, so the cards look identical
+ * either way.
+ */
+async function storefront(): Promise<{
+  total: number;
+  categories: { name: string; count: number; emoji: string }[];
+  featured: Mini[];
+  deals: Mini[];
+}> {
+  try {
+    const { connectDb } = await import("@/lib/db/connect");
+    const { Product } = await import("@/models");
+    await connectDb();
+
+    const total = await Product.countDocuments({ active: true });
+    if (total === 0) return { total: 0, categories: [], featured: [], deals: [] };
+
+    const mini = (p: Record<string, unknown>): Mini => {
+      const price = Number(p.priceInr ?? 0);
+      const mrp = Number(p.mrpInr ?? 0);
+      return {
+        sku: String(p.sku), title: String(p.title), brand: String(p.brand),
+        priceInr: price, mrpInr: mrp,
+        discountPct: mrp > 0 ? Math.round((1 - price / mrp) * 100) : 0,
+        ratingAvg: Number(p.ratingAvg ?? 0), ratingCount: Number(p.ratingCount ?? 0),
+        imageUrl: String(p.imageUrl ?? ""),
+        imageEmoji: String(p.imageEmoji ?? "\u{1F4E6}"),
+        accentHex: String(p.accentHex ?? "#3d4a9e"),
+        inStock: Number(p.stock ?? 0) > 0,
+      };
+    };
+
+    const [catRows, featuredRows, dealRows] = await Promise.all([
+      Product.aggregate<{ _id: string; n: number }>([
+        { $match: { active: true } },
+        { $group: { _id: "$category", n: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]),
+      // In stock only: a featured product nobody can buy is a dead tile.
+      Product.find({ active: true, stock: { $gt: 0 } })
+        .sort({ ratingCount: -1 })
+        .limit(6)
+        .lean(),
+      Product.find({ active: true, stock: { $gt: 0 }, mrpInr: { $gt: 0 } })
+        .sort({ mrpInr: -1 })
+        .limit(6)
+        .lean(),
+    ]);
+
+    const deals = (dealRows as Record<string, unknown>[])
+      .map(mini)
+      .filter((p) => p.discountPct >= 25)
+      .sort((a, b) => b.discountPct - a.discountPct)
+      .slice(0, 6);
+
+    return {
+      total,
+      categories: catRows.map((c) => ({
+        name: c._id,
+        count: c.n,
+        emoji: CATEGORY_EMOJI[c._id] ?? "\u{1F4E6}",
+      })),
+      featured: (featuredRows as Record<string, unknown>[]).map(mini),
+      deals,
+    };
+  } catch {
+    // An unreachable database must not take the front door down with it.
+    return { total: 0, categories: [], featured: [], deals: [] };
+  }
+}
+
+const INR = (n: number) => `\u20B9${Math.trunc(n || 0).toLocaleString("en-IN")}`;
+
+function MiniCard({ p }: { p: Mini }) {
+  return (
+    <Link href={`/shop?q=${encodeURIComponent(p.title)}`} className="mini-card">
+      <ProductImage
+        src={p.imageUrl}
+        emoji={p.imageEmoji}
+        alt={p.title}
+        accent={p.accentHex}
+        size="card"
+        className="mini-art"
+      />
+      <span className="mini-brand">{p.brand}</span>
+      <span className="mini-title">{p.title}</span>
+      <span className="mini-price">
+        <strong>{INR(p.priceInr)}</strong>
+        {p.discountPct > 0 && (
+          <>
+            <s>{INR(p.mrpInr)}</s>
+            <em>{p.discountPct}% off</em>
+          </>
+        )}
+      </span>
+      <span className="mini-meta">
+        {p.ratingAvg.toFixed(1)} &#9733; ({p.ratingCount.toLocaleString("en-IN")})
+      </span>
+    </Link>
   );
 }

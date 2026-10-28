@@ -9,8 +9,9 @@
  * person clicked is not a regression suite.
  */
 import { connectDb } from "@/lib/db/connect";
-import { Claim, Order, User } from "@/models";
+import { Claim, Order, Shipment, User } from "@/models";
 import type { LeanClaim, LeanOrder, LeanUser } from "@/models";
+import { rescueOrder } from "@/lib/agent/rescue";
 import { openClaim } from "@/lib/agent/claims";
 import { decideClaim } from "@/lib/agent/approval";
 import { tick } from "@/lib/agent/watcher";
@@ -31,8 +32,11 @@ export async function runEvals(only?: number[]): Promise<EvalReport> {
   const startedAt = new Date();
   await connectDb();
 
-  // Fresh state, so results are reproducible.
-  await seed();
+  // Fresh state, so results are reproducible. `force` because the suite is
+  // destructive by design and the test setup guarantees a throwaway
+  // in-process database; the Evals tab is operator-only and refuses in
+  // production through the same guard.
+  await seed({ force: true });
   await resetClock();
   await setBrokenTool("");
 
@@ -74,6 +78,124 @@ async function runOne(sc: Scenario): Promise<Omit<ScenarioResult, "ms">> {
   const observed: Record<string, unknown> = {};
   const check = (label: string, ok: boolean, detail = "") =>
     checks.push({ label, ok, detail });
+
+  /* ── Rescue scenarios: the proactive agent, no claim involved ────── */
+
+  if (sc.kind === "rescue") {
+    const order = await Order.findOne({ orderNo: sc.orderNo }).lean<LeanOrder>();
+    if (!order) throw new Error(`scenario ${sc.id}: no order ${sc.orderNo}`);
+
+    // Put the shipment and the rescue counters in the exact state the
+    // scenario describes. Set explicitly rather than inherited, because an
+    // eval that depends on what an earlier scenario left behind is not a
+    // regression test.
+    await Shipment.updateOne(
+      { orderId: order._id },
+      {
+        $set: {
+          attempts: sc.rescue?.attempts ?? 0,
+          phoneReachable: sc.rescue?.phoneReachable ?? true,
+        },
+      },
+    );
+    await Order.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          rescueAttempts: sc.rescue?.attemptsMade ?? 0,
+          rescueActions: sc.rescue?.actionsTaken ?? [],
+          rescueState: "NONE",
+          rescueBaselineScore: null,
+        },
+      },
+    );
+
+    const run = await rescueOrder(sc.orderNo!, { humanPresent: false });
+    const a = run.assessment;
+
+    observed.decision = a.decision;
+    observed.triggers = a.triggers;
+    observed.riskScore = a.risk.score;
+    observed.riskBand = a.risk.band;
+    observed.runwayDays = a.runwayDays;
+    observed.action = a.intervention?.action ?? null;
+    observed.needsApproval = a.intervention?.needsApproval ?? null;
+    observed.steps = run.steps.map((x) => `${x.action}:${x.outcome}`);
+    observed.state = run.state;
+    observed.reasons = a.reasons;
+
+    const e = sc.expect;
+
+    if (e.rescueDecision !== undefined) {
+      check(
+        `decides ${e.rescueDecision}`,
+        a.decision === e.rescueDecision,
+        `decided ${a.decision}` + (a.handoffReason ? ` — ${a.handoffReason}` : ""),
+      );
+    }
+
+    if (e.rescueTrigger !== undefined) {
+      check(
+        `${e.rescueTrigger} fired`,
+        a.triggers.includes(e.rescueTrigger as never),
+        a.triggers.length ? a.triggers.join(", ") : "no trigger fired",
+      );
+    }
+
+    if (e.rescueAction !== undefined) {
+      const got = a.intervention?.action ?? null;
+      check(
+        e.rescueAction === null ? "proposes no action" : `proposes ${e.rescueAction}`,
+        got === e.rescueAction,
+        got === null ? "declined to act" : `proposed ${got}`,
+      );
+    }
+
+    if (e.rescueNeedsApproval !== undefined) {
+      check(
+        e.rescueNeedsApproval
+          ? "the proposed action stops at the approval gate"
+          : "the proposed action is reversible and may run unapproved",
+        (a.intervention?.needsApproval ?? false) === e.rescueNeedsApproval,
+        `needsApproval=${a.intervention?.needsApproval ?? "n/a"}`,
+      );
+    }
+
+    if (e.rescueExecuted !== undefined) {
+      const executed = run.steps.some((x) => x.outcome === "executed");
+      check(
+        e.rescueExecuted
+          ? "executed the intervention itself"
+          : "executed nothing itself",
+        executed === e.rescueExecuted,
+        run.steps.length ? run.steps.map((x) => `${x.action}:${x.outcome}`).join(", ") : "no steps",
+      );
+    }
+
+    // Asserted on EVERY rescue scenario, not only the ones about authority:
+    // the rescue agent must never have moved money or placed an order,
+    // whatever it decided.
+    const refund = await callTool(
+      "issue_refund",
+      { order_no: sc.orderNo, amount_inr: 1 },
+      { userId: String(order.userId), agent: "RiskAgent" },
+    );
+    check(
+      "the rescue agent cannot move money",
+      refund.ok === false,
+      refund.ok ? "issue_refund SUCCEEDED — the mandate is not enforced" : "refused by the registry",
+    );
+
+    // And every point of the score still traces to a named factor, so the
+    // intervention is arguable rather than asserted.
+    check(
+      "every risk point traces to a named factor",
+      a.risk.reasons.reduce((n, r) => n + r.points, 0) >= a.risk.score,
+      `${a.risk.reasons.length} factors`,
+    );
+
+    return finish(sc, checks, observed);
+  }
 
   /* ── Risk scenarios need no claim at all ─────────────────────────── */
 
@@ -275,26 +397,82 @@ async function runOne(sc: Scenario): Promise<Omit<ScenarioResult, "ms">> {
     await resetClock();
   }
 
-  /* ── The known limitation, reported honestly ─────────────────────── */
+  /* ── Multi-issue: each issue adjudicated, aggregate capped ───────── */
+
+  const multi = outcome.multi;
+  const distinct = multi.issues.filter((i) => i.status !== "SUBSUMED");
+  const paying = multi.issues.filter((i) => i.payableInr > 0);
+
+  observed.issuesRead = multi.issues.length;
+  observed.issuesDistinct = distinct.length;
+  observed.issuesPaying = paying.length;
+  observed.issueBreakdown = multi.issues.map(
+    (i) => `${i.key} ${i.issueType} ${i.status}` + (i.payableInr ? ` Rs${i.payableInr}` : ""),
+  );
+  observed.totalPayableInr = multi.totalPayableInr;
+  observed.uncappedTotalInr = multi.uncappedTotalInr;
+  observed.capInr = multi.capInr;
 
   if (e.issuesDetected !== undefined) {
-    const detected = 1 + (outcome.triage.secondaryIssue ? 1 : 0);
-    observed.issuesDetected = detected;
-    observed.remediedIssues = 1;
-
-    // Triage can see the second issue; the claim model can only remedy one.
-    // Both facts are asserted so the report shows exactly where the limit is,
-    // rather than a bare failure that looks like a bug.
+    // What the splitter read out of the prose, which is the detection claim.
     check(
-      `triage notices both issues (expects ${e.issuesDetected})`,
-      detected >= e.issuesDetected,
-      `saw ${outcome.triage.issueType}` +
-        (outcome.triage.secondaryIssue ? ` + ${outcome.triage.secondaryIssue}` : " only"),
+      `reads ${e.issuesDetected} issues from one complaint`,
+      multi.issues.length >= e.issuesDetected,
+      `read ${multi.issues.length}: ${multi.issues.map((i) => i.issueType).join(" + ")}`,
+    );
+  }
+
+  if (e.issuesAdjudicated !== undefined) {
+    check(
+      `adjudicates ${e.issuesAdjudicated} issue(s) separately`,
+      distinct.length === e.issuesAdjudicated,
+      `${distinct.length} distinct after the cross-issue rules ` +
+        `(${multi.issues.length} read, ${multi.issues.length - distinct.length} subsumed)`,
+    );
+  }
+
+  if (e.issueTypes !== undefined) {
+    const got = multi.issues.map((i) => i.issueType);
+    for (const want of e.issueTypes) {
+      check(`${want} is one of the adjudicated issues`, got.includes(want as never), got.join(", "));
+    }
+  }
+
+  if (e.issuesPaying !== undefined) {
+    check(
+      `${e.issuesPaying} issue(s) carry a cash remedy`,
+      paying.length === e.issuesPaying,
+      `${paying.length} paying, total Rs ${multi.totalPayableInr}`,
+    );
+  }
+
+  if (e.expectSubsumed) {
+    const subsumed = multi.issues.filter((i) => i.status === "SUBSUMED");
+    check(
+      "a duplicate allegation is subsumed rather than paid twice",
+      subsumed.length > 0,
+      subsumed.length
+        ? subsumed.map((i) => `${i.issueType} ← ${i.subsumedBy}`).join(", ")
+        : "nothing was subsumed",
+    );
+  }
+
+  // Asserted on every claim scenario that reached adjudication, not only the
+  // multi-issue ones: the aggregate across all issues can never exceed the
+  // order value, and each issue pays at most what the engine allowed it.
+  if (multi.issues.length > 0) {
+    check(
+      "the aggregate across every issue is within the order value",
+      multi.totalPayableInr <= multi.capInr,
+      `Rs ${multi.totalPayableInr} of a Rs ${multi.capInr} cap ` +
+        `(uncapped Rs ${multi.uncappedTotalInr})`,
     );
     check(
-      "both issues are separately remedied",
-      false,
-      "one remedy is issued for the stronger issue; the second is recorded but not remedied",
+      "no issue pays more than the engine allowed it",
+      multi.issues.every((i) => i.payableInr <= i.verdict.amountInr),
+      multi.issues
+        .map((i) => `${i.issueType} Rs${i.payableInr}/Rs${i.verdict.amountInr}`)
+        .join(", "),
     );
   }
 

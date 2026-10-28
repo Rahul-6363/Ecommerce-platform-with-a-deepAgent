@@ -18,6 +18,13 @@ import {
 } from "@/lib/engines/offers";
 import { CONSTRAINT_KINDS } from "@/lib/engines/constraints";
 import {
+  SEVERITY, SAME_ALLEGATION, WHOLE_ORDER_REMEDIES,
+} from "@/lib/engines/multi-issue";
+import { MAX_ISSUES } from "@/lib/agent/issue-splitter";
+import {
+  MAX_RESCUE_ATTEMPTS, MIN_RUNWAY_DAYS, RESCUE_ABANDON_DAYS,
+} from "@/lib/engines/rescue";
+import {
   STANDING_BANDS, MIN_ORDERS_FOR_CONFIDENCE,
 } from "@/lib/engines/seller-standing";
 
@@ -111,6 +118,30 @@ export async function GET() {
             poorBandPct: STANDING_BANDS.poor,
             minOrdersForConfidence: MIN_ORDERS_FOR_CONFIDENCE,
           },
+        },
+        multiIssue: {
+          description:
+            "Adjudicates each issue in a multi-issue complaint through the SAME entitlement engine, then applies the two rules that only make sense across a set: nothing is owed on top of a whole-order remedy, and the aggregate is capped at the order value. It can only ever reduce a payout, never invent or raise one.",
+          constants: {
+            maxIssuesPerComplaint: MAX_ISSUES,
+            // Each group is one physical fault with two names, collapsed so it
+            // cannot be remedied twice.
+            sameAllegationGroups: SAME_ALLEGATION.length,
+            wholeOrderRemedies: WHOLE_ORDER_REMEDIES.length,
+          },
+          issueSeverity: SEVERITY,
+          sameAllegation: SAME_ALLEGATION,
+        },
+        rescue: {
+          description:
+            "Decides whether an in-flight order needs rescuing. Composes riskScore and deliveryForecast rather than scoring anything itself, judges the promise against the confident date, and declines to act on a healthy parcel. Every action it proposes is still gated by the tool registry.",
+          constants: {
+            maxAttemptsPerOrder: MAX_RESCUE_ATTEMPTS,
+            minRunwayDays: MIN_RUNWAY_DAYS,
+            abandonAfterDaysOverdue: RESCUE_ABANDON_DAYS,
+          },
+          note:
+            "Courier actions are SIMULATED. There is no courier integration: each one writes the shipment state a real courier API would cause.",
         },
         deliveryForecast: {
           description:

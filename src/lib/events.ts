@@ -28,6 +28,12 @@ export type EventType =
   | "order.cancelled" | "order.payment_converted"
   | "shipment.scan" | "shipment.attempt_failed" | "shipment.redirected" | "shipment.held"
   | "risk.scored" | "risk.intervention_proposed" | "risk.intervention_declined"
+  // Proactive rescue: the agent that tries to stop a delivery failing before
+  // the buyer has to complain. `assessed` and `declined` are emitted even when
+  // nothing happens — an agent that only logs when it acts looks like one that
+  // always acts, and the restraint is the part worth proving.
+  | "rescue.assessed" | "rescue.declined" | "rescue.intervened" | "rescue.queued"
+  | "rescue.rescored" | "rescue.handoff" | "rescue.swept"
   // Addresses, because the pincode on one decides the delivery forecast and
   // the dispatch risk — so changing it changes what the platform promised.
   | "address.added" | "address.updated" | "address.default_changed"
@@ -39,6 +45,11 @@ export type EventType =
   | "claim.opened" | "claim.voice_transcribed" | "claim.translated"
   | "claim.triaged" | "claim.evidence_added" | "claim.vision_analysed"
   | "claim.authenticity_assessed" | "claim.adjudicated" | "claim.draft_written"
+  // Multi-issue: splitting the prose and adjudicating each issue are separate
+  // events because they are separate authorities. A model reads one complaint
+  // into several problems; the entitlement engine then decides each one and
+  // the aggregate cap, which is why the adjudication event is the engine's.
+  | "claim.issues_split" | "claim.issues_adjudicated" | "claim.issue_decided"
   | "claim.draft_verified" | "claim.draft_rejected"
   | "claim.approval_requested" | "claim.approved" | "claim.rejected"
   | "claim.executed" | "claim.resolved" | "claim.escalated" | "claim.handoff"
@@ -48,7 +59,11 @@ export type EventType =
   | "claim.deadline_breached" | "claim.state_changed"
   // Platform
   | "mail.sent" | "mail.captured" | "mail.failed"
-  | "system.seeded" | "system.clock_advanced" | "system.degraded" | "system.tool_failed";
+  | "system.seeded" | "system.clock_advanced" | "system.degraded" | "system.tool_failed"
+  // Public registration. Carries no password material and no address:
+  // the stream is read on the operator desk, and a new account does not
+  // need to publish where someone lives.
+  | "auth.registered";
 
 export type EmitInput = {
   type: EventType;

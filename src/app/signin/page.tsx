@@ -1,119 +1,179 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, Toast, Spinner } from "@/components/ui";
+import { api, Banner, Spinner, Toast } from "@/components/ui";
 
-type Health = { seeded: boolean; database: { ok: boolean; detail: string } };
+/**
+ * Sign in.
+ *
+ * Two things changed here from the version that only knew demo accounts:
+ *
+ *  1. **Registration is the primary path.** The demo accounts are a
+ *     convenience for a reviewer, not the way in, so they sit below the form
+ *     and behind a disclosure — and the server hides them entirely in
+ *     production, where a published credential is a vulnerability rather than
+ *     a shortcut.
+ *  2. **There is no "build the database" button.** It used to be open to
+ *     anyone while the user table was empty. Seeding deletes every
+ *     collection, so it now belongs to `npm run setup -- --seed`, run by
+ *     whoever owns the database. If the catalogue is empty this page says so
+ *     and names the command instead of offering to run it.
+ */
 
-const DEMO_ACCOUNTS = [
-  { email: "arjun@example.in", name: "Arjun Menon", note: "Bengaluru · English · prefers a fast replacement" },
-  { email: "lakshmi@example.in", name: "Lakshmi Prasad", note: "Tumakuru · ಕನ್ನಡ · tier-3 pincode, COD" },
-  { email: "priya@example.in", name: "Priya Sharma", note: "Delhi · हिन्दी · prefers money back" },
-  { email: "murugan@example.in", name: "Murugan Subramaniam", note: "Karur · தமிழ் · two rejected claims on record" },
-  { email: "ops@vaanijya.in", name: "Resolution Desk", note: "Operator — approves claims and runs the demo controls" },
-];
+type Health = {
+  seeded: boolean;
+  demoAccountsVisible: boolean;
+  demoAccounts: { email: string; name: string; note: string }[];
+  demoPassword: string;
+  persistent: boolean;
+  persistenceNote: string;
+};
 
-export default function SignIn() {
+export default function SignInPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("arjun@example.in");
-  const [password, setPassword] = useState("demo123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState("");
   const [health, setHealth] = useState<Health | null>(null);
+  const [showDemo, setShowDemo] = useState(false);
   const [toast, setToast] = useState<{ m: string; t: "ok" | "err" } | null>(null);
 
-  useEffect(() => {
-    api<Health>("/api/health").then(setHealth).catch(() => setHealth(null));
+  const load = useCallback(async () => {
+    try {
+      setHealth(await api<Health>("/api/auth/entry"));
+    } catch {
+      /* The form still works without this; it only drives the hints. */
+    }
   }, []);
 
-  async function signIn(e?: React.FormEvent) {
-    e?.preventDefault();
+  useEffect(() => { load(); }, [load]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
     setBusy(true);
+    setError("");
     try {
       const u = await api<{ role: string }>("/api/auth/login", { json: { email, password } });
+      // An operator lands on the desk; everyone else on the storefront.
       router.push(u.role === "operator" ? "/desk" : "/shop");
-      router.refresh();
     } catch (err) {
-      setToast({ m: err instanceof Error ? err.message : "Sign in failed.", t: "err" });
-      setBusy(false);
+      setError(err instanceof Error ? err.message : "That did not work.");
     }
+    setBusy(false);
   }
-
-  async function runSeed() {
-    setSeeding(true);
-    try {
-      const r = await api<{ products: number; orders: number }>("/api/desk/seed", { json: {} });
-      setToast({ m: `Database built: ${r.products} products, ${r.orders} demo orders.`, t: "ok" });
-      setHealth(await api<Health>("/api/health"));
-    } catch (err) {
-      setToast({ m: err instanceof Error ? err.message : "Seed failed.", t: "err" });
-    }
-    setSeeding(false);
-  }
-
-  const needsSeed = health !== null && !health.seeded;
 
   return (
-    <main style={{ minHeight: "100dvh", display: "grid", placeItems: "center", padding: "1.5rem 1.25rem" }}>
-      <div style={{ width: "100%", maxWidth: "26rem" }}>
-        <Link href="/" style={{ textDecoration: "none" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 650, textAlign: "center", marginBottom: ".3rem" }}>
-            Vaanijya
-          </div>
-        </Link>
-        <p style={{ textAlign: "center", color: "var(--ink-faint)", fontSize: ".85rem", marginBottom: "1.5rem" }}>
-          Sign in to shop, or to work the resolution desk
+    <main className="auth-page">
+      <div className="auth-card">
+        <Link href="/" className="auth-brand">Vaanijya</Link>
+        <h1 className="auth-title">Sign in</h1>
+        <p className="auth-lede">
+          New here? <Link href="/register">Create an account</Link> — it takes a
+          name, an email and a password.
         </p>
 
-        {needsSeed && (
-          <div className="card" style={{ padding: "1rem", marginBottom: "1rem", borderColor: "var(--haldi)" }}>
-            <div style={{ fontWeight: 600, fontSize: ".9rem", marginBottom: ".3rem" }}>
-              The database is empty
-            </div>
-            <p style={{ fontSize: ".84rem", color: "var(--ink-soft)", marginBottom: ".8rem" }}>
-              Build the catalogue, the policies and six demo orders. Takes a second.
-            </p>
-            <button className="btn btn-accent" onClick={runSeed} disabled={seeding} style={{ width: "100%" }}>
-              {seeding ? <Spinner label="Building" /> : "Build the demo database"}
-            </button>
+        {health && !health.seeded && (
+          <div style={{ marginBottom: "1rem" }}>
+            <Banner tone="gold">
+              The catalogue is empty. Run{" "}
+              <code className="mono">npm run setup -- --seed</code> in the project
+              directory to build it, then reload. Seeding deletes every
+              collection, so it is a command rather than a button.
+            </Banner>
           </div>
         )}
 
-        <form className="card" style={{ padding: "1.25rem" }} onSubmit={signIn}>
-          <label style={{ display: "block", marginBottom: ".9rem" }}>
-            <span style={{ fontSize: ".82rem", fontWeight: 550, display: "block", marginBottom: ".3rem" }}>Email</span>
-            <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" />
+        {health && !health.persistent && (
+          <div style={{ marginBottom: "1rem" }}>
+            <Banner tone="indigo">{health.persistenceNote}</Banner>
+          </div>
+        )}
+
+        <form onSubmit={submit} noValidate>
+          <label className="field-label" htmlFor="email">Email</label>
+          <input
+            id="email"
+            className="field"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+            autoFocus
+            aria-describedby={error ? "signin-error" : undefined}
+          />
+
+          <label className="field-label" htmlFor="password" style={{ marginTop: ".9rem" }}>
+            Password
           </label>
-          <label style={{ display: "block", marginBottom: "1.1rem" }}>
-            <span style={{ fontSize: ".82rem", fontWeight: 550, display: "block", marginBottom: ".3rem" }}>Password</span>
-            <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-          </label>
-          <button className="btn btn-primary" type="submit" disabled={busy} style={{ width: "100%" }}>
+          <input
+            id="password"
+            className="field"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+            aria-describedby={error ? "signin-error" : undefined}
+          />
+
+          {error && (
+            <p id="signin-error" role="alert" className="field-error">{error}</p>
+          )}
+
+          <button
+            className="btn btn-primary"
+            disabled={busy}
+            style={{ width: "100%", marginTop: "1.1rem" }}
+          >
             {busy ? <Spinner label="Signing in" /> : "Sign in"}
           </button>
         </form>
 
-        <div className="card" style={{ padding: "1rem", marginTop: "1rem" }}>
-          <div style={{ fontSize: ".8rem", color: "var(--ink-faint)", marginBottom: ".6rem" }}>
-            Demo accounts — every password is <code className="mono">demo123</code>
-          </div>
-          {DEMO_ACCOUNTS.map((a) => (
+        {/* Demo accounts, only where the server says it is safe to show them. */}
+        {health?.demoAccountsVisible && health.demoAccounts.length > 0 && (
+          <div className="auth-demo">
             <button
-              key={a.email}
-              onClick={() => { setEmail(a.email); setPassword("demo123"); }}
-              style={{
-                display: "block", width: "100%", textAlign: "left", background: "none",
-                border: "none", borderTop: "1px solid var(--rule)", padding: ".55rem 0",
-                cursor: "pointer",
-              }}
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowDemo((v) => !v)}
+              aria-expanded={showDemo}
             >
-              <div style={{ fontSize: ".85rem", fontWeight: 550 }}>{a.name}</div>
-              <div style={{ fontSize: ".76rem", color: "var(--ink-faint)" }}>{a.note}</div>
+              {showDemo ? "Hide demo accounts" : "Use a demo account instead"}
             </button>
-          ))}
-        </div>
+
+            {showDemo && (
+              <>
+                <p className="auth-demo-note">
+                  Seeded accounts for a local demonstration. Every password is{" "}
+                  <code className="mono">{health.demoPassword}</code>. These are
+                  hidden automatically in a production build.
+                </p>
+                <ul className="auth-demo-list">
+                  {health.demoAccounts.map((a) => (
+                    <li key={a.email}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmail(a.email);
+                          setPassword(health.demoPassword);
+                          setToast({ m: `Filled in ${a.name}. Press Sign in.`, t: "ok" });
+                        }}
+                      >
+                        <strong>{a.name}</strong>
+                        <span className="mono">{a.email}</span>
+                        <em>{a.note}</em>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {toast && <Toast message={toast.m} tone={toast.t} onDone={() => setToast(null)} />}

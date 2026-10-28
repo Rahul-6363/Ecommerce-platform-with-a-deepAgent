@@ -244,9 +244,16 @@ export function stageOf(type: string): Stage {
   if (type.startsWith("finder.") || type.startsWith("catalogue.") || type.startsWith("cart.")) {
     return "choose";
   }
+  // Registration is where a buyer enters the platform, so it files with
+  // the choosing stage rather than under "platform" miscellany.
+  if (type.startsWith("auth.")) return "choose";
   if (type.startsWith("address.")) return "order";
   if (type.startsWith("order.")) return type === "order.delivered" ? "transit" : "order";
-  if (type.startsWith("shipment.") || type.startsWith("risk.")) return "transit";
+  // Rescue belongs with the parcel in flight, not under "platform": it is
+  // about a delivery that has not happened yet.
+  if (type.startsWith("shipment.") || type.startsWith("risk.") || type.startsWith("rescue.")) {
+    return "transit";
+  }
   if (type.startsWith("claim.")) return "claim";
   if (type.startsWith("refund.") || type.startsWith("seller.")) return "money";
   if (type.startsWith("agent.")) return "choose";
@@ -284,6 +291,23 @@ export function isPivotal(type: string, payload?: Record<string, unknown>): stri
   }
   if (type === "seller.listings_restricted") {
     return "A seller's own failures caught up with them.";
+  }
+  // The restraint is as much the point as the action: an agent that acted on
+  // every parcel would be pestering buyers, not preventing failures.
+  if (type === "rescue.declined") {
+    return "The parcel was healthy, so the agent did nothing and said why.";
+  }
+  if (type === "rescue.queued") {
+    return "The fix would reach the buyer, so it waited for a person.";
+  }
+  if (type === "rescue.handoff") {
+    return "No safe automated action was left, so a person took the parcel.";
+  }
+  if (type === "claim.issues_split") {
+    return "One complaint carried more than one problem, and each was kept separate.";
+  }
+  if (type === "claim.issues_adjudicated") {
+    return "Each issue was priced by the rule engine, and the total capped at the order value.";
   }
   return null;
 }

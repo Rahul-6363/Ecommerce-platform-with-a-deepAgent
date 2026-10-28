@@ -25,7 +25,7 @@ let categories: string[];
 
 beforeAll(async () => {
   await connectDb();
-  await seed();
+  await seed({ force: true });
   categories = ((await Product.distinct("category", { active: true })) as string[]).sort();
 }, 180_000);
 

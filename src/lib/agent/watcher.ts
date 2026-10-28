@@ -20,6 +20,7 @@ import { emit } from "@/lib/events";
 import { sendMail } from "@/lib/mail/mailer";
 import { escalationNotice, orderStatus } from "@/lib/mail/templates";
 import { riskScore, chooseIntervention } from "@/lib/engines/risk";
+import { rescueSweep } from "@/lib/agent/rescue";
 import { env } from "@/lib/env";
 import { now } from "@/lib/clock";
 import { BUDGETS } from "@/lib/agent/mandate";
@@ -35,6 +36,20 @@ export type TickResult = {
   handedOff: { claimNo: string; reason: string }[];
   shipmentsScored: { shipmentId: string; score: number; band: string }[];
   interventionsProposed: number;
+  /**
+   * The proactive rescue sweep.
+   *
+   * Runs on the same tick as the deadline watcher because both are the same
+   * kind of work — comparing the clock against something the platform
+   * promised — and because a rescue is only useful before the promise lapses,
+   * which is exactly what this clock makes demonstrable.
+   */
+  rescue: {
+    ordersConsidered: number;
+    intervened: number;
+    handedOff: number;
+    declined: number;
+  };
 };
 
 /**
@@ -53,6 +68,7 @@ export async function tick(humanPresent: boolean): Promise<TickResult> {
     handedOff: [],
     shipmentsScored: [],
     interventionsProposed: 0,
+    rescue: { ordersConsidered: 0, intervened: 0, handedOff: 0, declined: 0 },
   };
 
   /* ── 1. Breached claim deadlines ─────────────────────────────────── */
@@ -284,6 +300,19 @@ export async function tick(humanPresent: boolean): Promise<TickResult> {
       orderId: String(o._id),
     });
   }
+
+  /* ── 4. Proactive rescue: stop the complaint being necessary ─────── */
+
+  // Deliberately last. The steps above only observe and escalate internally;
+  // this one can reach a courier, so it runs on a picture of the world the
+  // earlier steps have already brought up to date.
+  const sweep = await rescueSweep({ humanPresent });
+  result.rescue = {
+    ordersConsidered: sweep.ordersConsidered,
+    intervened: sweep.interventions.length,
+    handedOff: sweep.handoffs.length,
+    declined: sweep.declined,
+  };
 
   return result;
 }

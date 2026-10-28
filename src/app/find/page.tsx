@@ -21,9 +21,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Shell from "@/components/Shell";
+import ProductImage from "@/components/ProductImage";
 import {
   api, Banner, Chip, Disclosure, Empty, INR, shouldSpeakAnswer, SpeakButton,
   Spinner, Toast, useRecorder, useSpeaker,
@@ -50,7 +50,7 @@ type CostLine = { label: string; amountInr: number; detail: string; probabilisti
 type Candidate = {
   sku: string; title: string; brand: string; category: string; subcategory?: string;
   priceInr: number; mrpInr?: number; ratingAvg: number; ratingCount?: number;
-  stock: number; codEligible: boolean; imageEmoji?: string; accentHex?: string;
+  stock: number; codEligible: boolean; imageUrl?: string; imageEmoji?: string; accentHex?: string;
   attributes: Record<string, unknown>;
   seller: { sellerId: string; name: string; city?: string; ratingAvg?: number; defectRatePct: number; fulfilmentSlaDays: number };
 };
@@ -153,8 +153,9 @@ const DAY = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
 export default function FindPage() {
-  const router = useRouter();
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
+  /** Set once /api/auth/me has answered, either way. */
+  const [identityKnown, setIdentityKnown] = useState(false);
   const [sentence, setSentence] = useState("");
   const [result, setResult] = useState<FinderResponse | null>(null);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
@@ -201,14 +202,25 @@ export default function FindPage() {
 
   /* The arrival greeting lives in the shell, so every page gets exactly one. */
 
+  /* Describing a need needs no account either.
+   *
+   * This redirected a signed-out visitor to /signin, which put the one
+   * feature worth showing a newcomer behind a sign-up form. The cart is only
+   * read once we know there is somebody to read it for — asking otherwise
+   * logged a 401 for a question whose answer is "nothing". Adding to the cart
+   * still requires a session, and says so at that point. */
   useEffect(() => {
     api<{ user: { name: string; role: string } | null }>("/api/auth/me")
-      .then((r) => (r.user ? setUser(r.user) : router.push("/signin")))
-      .catch(() => router.push("/signin"));
-    api<{ count: number }>("/api/cart")
-      .then((r) => setCartCount(r.count ?? 0))
-      .catch(() => undefined);
-  }, [router]);
+      .then((r) => {
+        setUser(r.user);
+        if (!r.user) return;
+        return api<{ count: number }>("/api/cart")
+          .then((c) => setCartCount(c.count ?? 0))
+          .catch(() => undefined);
+      })
+      .catch(() => setUser(null))
+      .finally(() => setIdentityKnown(true));
+  }, []);
 
   /**
    * Run the solve.
@@ -385,6 +397,11 @@ export default function FindPage() {
   }
 
   async function addToCart(sku: string, rationale: string) {
+    // Reachable rather than exceptional now that this page is public.
+    if (!user) {
+      setToast({ m: "Sign in or create an account to start a cart.", t: "err" });
+      return;
+    }
     try {
       await api("/api/cart", { json: { action: "add", sku, qty: 1 } });
       const c = await api<{ count: number }>("/api/cart");
@@ -395,7 +412,9 @@ export default function FindPage() {
     }
   }
 
-  if (!user) {
+  /* Resolved, not signed in. `!user` is a permanent valid state now that this
+   * page is public — a guest — so gating the render on it spun forever. */
+  if (!identityKnown) {
     return (
       <main style={{ display: "grid", placeItems: "center", minHeight: "100dvh" }}>
         <Spinner label="Loading" />
@@ -1064,16 +1083,13 @@ function OfferCard({
       }}
     >
       <div style={{ display: "flex", gap: ".9rem", alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div
-          aria-hidden
-          style={{
-            width: 54, height: 54, borderRadius: 11, flexShrink: 0,
-            background: `${c.accentHex ?? "#e2dcd1"}1f`,
-            display: "grid", placeItems: "center", fontSize: "1.65rem",
-          }}
-        >
-          {c.imageEmoji ?? "📦"}
-        </div>
+        <ProductImage
+          src={c.imageUrl}
+          emoji={c.imageEmoji}
+          alt={c.title}
+          accent={c.accentHex ?? "#e2dcd1"}
+          size="thumb"
+        />
 
         <div style={{ flex: "1 1 16rem", minWidth: 0 }}>
           <div style={{ display: "flex", gap: ".4rem", alignItems: "center", flexWrap: "wrap" }}>
