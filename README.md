@@ -22,6 +22,24 @@ journeys over the real routes and the real engines, with every event tagged by
 the actor that caused it and by whether that actor was a language model or a
 pure function.
 
+## Vaanijya Architecture Diagrams
+
+### 1. High-Level Platform Overview
+The core architecture connecting the Buyer UI and Operator Desk to the orchestrator and the three main phases of the platform.
+![Vaanijya Architecture Overview](architecture_diagrams/Detailed%20Vaanijya%20Architecture.png)
+
+### 2. Shopping & Discovery Phase
+How the agent parses a natural language request, uses pure rules to filter constraints, calculates true costs, and adds to the cart without hallucination.
+![Shopping Phase Sequence](architecture_diagrams/Vaanijya%20Shopping%20&%20Discovery%20Flow.png)
+
+### 3. Proactive Order Rescue (In-Flight)
+The automated watcher that evaluates failure risks using mathematical engines and routes reversible actions (autonomous) vs. sensitive actions (operator-gated).
+![Order Rescue Sequence](architecture_diagrams/Vaanijya%20Proactive%20Order%20Rescue%20(In-Flight).png)
+
+### 4. Complaint Adjudication & Claims Phase
+The flow of triage, multi-issue splitting, vision model analysis, pure-rule payout calculation (Entitlement Engine), and the Grounding Guard verifier before human approval.
+![Claims Phase Sequence](architecture_diagrams/Vaanijya%20Complaint%20&%20Claims%20Adjudication.png)
+
 ---
 
 ## What's New
