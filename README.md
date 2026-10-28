@@ -24,6 +24,10 @@ pure function.
 
 ## Vaanijya Architecture Diagrams
 
+### Executive Summary: Full Platform Agent Architecture
+A comprehensive view of the Vaanijya platform, highlighting the clear separation between LLMs (for intent parsing) and Pure Functions (for strict policy enforcement and math).
+![Vaanijya E-Commerce Agent Architecture](architecture_diagrams/Vaanijya%20E-Commerce%20Agent%20Architecture.png)
+
 ### 1. High-Level Platform Overview
 The core architecture connecting the Buyer UI and Operator Desk to the orchestrator and the three main phases of the platform.
 ![Vaanijya Architecture Overview](architecture_diagrams/Detailed%20Vaanijya%20Architecture.png)
